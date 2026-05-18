@@ -1,0 +1,36 @@
+name: cuda-mapdiffusion-temporal
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.8
+  - pip
+  - numpy
+  - scipy
+  - tqdm
+  - pyyaml
+  - scikit-learn
+  - matplotlib
+  - shapely
+  - opencv
+  - pyquaternion
+  - pillow
+  - protobuf
+  - pip:
+      # Install OpenMMLab packages according to your CUDA/PyTorch stack.
+      # The original working env used:
+      # torch 1.9.0+cu111
+      # torchvision 0.10.0+cu111
+      # mmcv 1.6.0
+      # mmdet 2.28.2
+      # mmdet3d 1.0.0rc6
+      - nuscenes-devkit
+      - lyft-dataset-sdk
+      - networkx
+      - descartes
+      - einops
+      - timm
+      - yapf==0.40.1
