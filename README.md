@@ -1,169 +1,398 @@
-# CUDA-BEVFusion
+# CUDA-MapDiffusion-Temporal
 
-This repository contains sources and model for [BEVFusion](https://github.com/mit-han-lab/bevfusion) inference using CUDA & TensorRT.
-![title](/assets/bevfusion.png)
+TensorRT/CUDA runtime for **Temporal MapDiffusion** HD map vector prediction.
 
+This repository contains the CUDA-BEVFusion-based deployment code for running a Temporal MapDiffusion pipeline with TensorRT engines.
 
-## 3D Object Detection(on nuScenes validation set)
-- For all models, we used the [BEVFusion-Base](https://github.com/mit-han-lab/bevfusion/blob/main/configs/nuscenes/det/transfusion/secfpn/camera+lidar/swint_v0p075/convfuser.yaml) configuration.
-  - The camera resolution is 256x704
-- For the camera backbone, we chose SwinTiny and [ResNet50](configs/nuscenes/det/transfusion/secfpn/camera+lidar/resnet50/default.yaml).
+The working runtime path is:
 
-|         **Model**        | **Framework** | **Precision** | **mAP** | **NDS** | **FPS** |
-|:------------------------:|:-------------:|:-------------:|:-------:|:-------:|:----------------:|
-| Swin-Tiny <br/> BEVFusion-Base |    PyTorch    |   FP32+FP16   |  68.52  |  71.38  |         8.4(on RTX3090)        |
-|         ResNet50         |    PyTorch    |   FP32+FP16   |  67.93  |  70.97  |         -        |
-|         ResNet50         |    TensorRT   |      FP16     |  67.89  |  70.98  |        18(on ORIN)        |
-|         ResNet50-PTQ         |    TensorRT   |      FP16+INT8     |  67.66  |  70.81  |        25(on ORIN)        |
-- Note: The time we reported on ORIN is based on the average of nuScenes 6019 validation samples.
-  - Since the number of lidar points is the main reason that affects the FPS. 
-  - Please refer to the readme of [3DSparseConvolution](/libraries/3DSparseConvolution/README.md) for more details.
-
-## Demonstration
-![](../assets/cuda-bevfusion.gif)
-
-## Model and Data
-- For quick practice, we provide an example data of nuScenes. You can download it from ( [NVBox](https://nvidia.box.com/shared/static/g8vxxes3xj1288teyo4og87rn99brdf8) ) or ( [Baidu Drive](https://pan.baidu.com/s/1ED6eospSIF8oIQ2unU9WIQ?pwd=mtvt) ). It contains the following:
-  1. Camera images in 6 directions.
-  2. Transformation matrix of camera/lidar/ego.
-  3. Use for bevfusion-pytorch data of example-data.pth, allow export onnx only without depending on the full dataset.
-- All models (model.zip) can be downloaded from ( [NVBox](https://nvidia.box.com/shared/static/vc1ezra9kw7gu7wg3v8cwuiqshwr8b39) ) or ( [Baidu Drive](https://pan.baidu.com/s/1BiAoQ8L7nC45vEwkN3bSGQ?pwd=8jb6) ). It contains the following:
-  1. swin-tiny onnx models.
-  2. resnet50 onnx and pytorch models.
-  3. resnet50 int8 onnx and PTQ models.
-
-## Prerequisites
-To build bevfusion, we need to depend on the following libraries:
-- CUDA >= 11.0
-- CUDNN >= 8.2
-- TensorRT >= 8.5.0
-- libprotobuf-dev
-- [Compute Capability](https://developer.nvidia.com/cuda-gpus#compute) >= sm_80
-- Python >= 3.6
-
-The data in the performance table was obtained by us on the Nvidia Orin platform, using TensorRT-8.6, cuda-11.4 and cudnn8.6 statistics.
-
-## Quick Start for Inference
-- note: Please use `git clone --recursive` to pull this repository to ensure the integrity of the dependencies.
-
-### 1. Download models and datas to CUDA-BEVFusion directory
-- download model.zip from ( [NVBox](https://nvidia.box.com/shared/static/vc1ezra9kw7gu7wg3v8cwuiqshwr8b39) ) or ( [Baidu Drive](https://pan.baidu.com/s/1_6IJTzKlJ8H62W5cUPiSbA?pwd=g6b4) )
-- download nuScenes-example-data.zip from 
-( [NVBox](https://nvidia.box.com/shared/static/g8vxxes3xj1288teyo4og87rn99brdf8) ) or ( [Baidu Drive](https://pan.baidu.com/s/1ED6eospSIF8oIQ2unU9WIQ?pwd=mtvt) )
-```bash
-# download models and datas to CUDA-BEVFusion
-cd CUDA-BEVFusion
-
-# unzip models and datas
-unzip model.zip
-unzip nuScenes-example-data.zip
-
-# here is the directory structure after unzipping
-CUDA-BEVFusion
-|-- example-data
-    |-- 0-FRONT.jpg
-    |-- 1-FRONT_RIGHT.jpg
-    |-- ...
-    |-- camera_intrinsics.tensor
-    |-- ...
-    |-- example-data.pth
-    `-- points.tensor
-|-- src
-|-- qat
-|-- model
-    |-- resnet50int8
-    |   |-- bevfusion_ptq.pth
-    |   |-- camera.backbone.onnx
-    |   |-- camera.vtransform.onnx
-    |   |-- default.yaml
-    |   |-- fuser.onnx
-    |   |-- head.bbox.onnx
-    |   `-- lidar.backbone.xyz.onnx
-    |-- resnet50
-    `-- swint
-|-- bevfusion
-`-- tool
-```
-### 2. Configure the environment.sh
-- Install python dependency libraries
-```bash
-apt install libprotobuf-dev
-pip install onnx
+```text
+multi-view images
+  -> Engine A: camera backbone + FPN
+  -> Engine B: BEVFormer encoder
+  -> Engine D: StreamFusionNeck / warped temporal BEV fusion
+  -> Engine C_first: MapDiffusion head for first frame in a scene
+  -> Engine C_temporal: MapDiffusion temporal head for later frames
+  -> submission_vector.json
+  -> vector-map evaluation
 ```
 
-- Modify the TensorRT/CUDA/CUDNN/BEVFusion variable values in the tool/environment.sh file.
-```bash
-# change the path to the directory you are currently using
-export TensorRT_Lib=/path/to/TensorRT/lib
-export TensorRT_Inc=/path/to/TensorRT/include
-export TensorRT_Bin=/path/to/TensorRT/bin
+The important implementation detail is that the MapDiffusion head must receive the **fused/warped BEV** from the temporal fusion neck, not the raw BEV encoder output.
 
-export CUDA_Lib=/path/to/cuda/lib64
-export CUDA_Inc=/path/to/cuda/include
-export CUDA_Bin=/path/to/cuda/bin
-export CUDA_HOME=/path/to/cuda
+---
 
-export CUDNN_Lib=/path/to/cudnn/lib
+## 1. Large artifacts
 
-# For CUDA-11.x:    SPCONV_CUDA_VERSION=11.4
-# For CUDA-12.x:    SPCONV_CUDA_VERSION=12.6
-export SPCONV_CUDA_VERSION=11.4
+TensorRT `.plan` engines and compiled `.so` plugin libraries are not tracked in Git.
 
-# resnet50/resnet50int8/swint
-export DEBUG_MODEL=resnet50int8
+Download the artifacts from:
 
-# fp16/int8
-export DEBUG_PRECISION=int8
-export DEBUG_DATA=example-data
-export USE_Python=OFF
+```text
+PASTE_ARTIFACT_LINK_HERE
 ```
 
-- Apply the environment to the current terminal.
-```bash
-. tool/environment.sh
+After downloading, place them exactly like this:
+
+```text
+CUDA-MapDiffusion-Temporal/
+  model/mapdiffusion_temporal_routeB/build/
+    camera.backbone_fpn.temporal87000.dcnv2.fp32.im2colgemm.plan
+    camera.bevformer_encoder.temporal87000.tsa_sca_plugin.fp32.plan
+    stream_fusion_neck.temporal87000.fp32.plan
+    mapdiffusion.temporal_head.manual_tq.presplit.opset13.fp32.plan
+    mapdiffusion.temporal_head.manual_tq.firstframe.opset13.fp32.plan
+
+  build/
+    libmapdiffusion_msda.so
+    plugins/
+      libmmcv_dcnv2_trt.so
+      libbevformer_tsa_trt.so
+      libbevformer_sca_trt.so
 ```
 
-### 5. Compile and run
+Check:
 
-1. Building the models for tensorRT
 ```bash
-bash tool/build_trt_engine.sh
+ls -lh model/mapdiffusion_temporal_routeB/build/*.plan
+ls -lh build/libmapdiffusion_msda.so
+ls -lh build/plugins/*.so
 ```
 
-2. Compile and run the program
-```bash
-# Generate the protobuf code
-bash src/onnx/make_pb.sh
+---
 
-# Compile and run
-bash tool/run.sh
+## 2. External dependencies
+
+This repo assumes the same environment used for the original Temporal MapDiffusion deployment.
+
+Expected stack:
+
+```text
+Python 3.8
+PyTorch 1.9.0 + CUDA 11.1
+TensorRT 8.5.3.1
+MMCV / MMDetection / MMDetection3D
+nuScenes trainval data
+MapDiffusion Python plugin code
 ```
 
-## Export onnx and PTQ
-- For more detail, please refer [here](qat/README.md)
+On the original HPC setup:
 
-## For Python Interface
-1. Modify `USE_Python=ON` in environment.sh to enable compilation of python.
-2. Run `bash tool/run.sh` to build the libpybev.so.
-3. Run `python tool/pybev.py` to test the python interface.
-
-## For PyTorch BEVFusion
-- Use the following command to get a specific commit to avoid failure.
 ```bash
-git clone https://github.com/mit-han-lab/bevfusion
-
-cd bevfusion
-git checkout db75150717a9462cb60241e36ba28d65f6908607
+conda activate streammapnet
 ```
 
-## Further performance improvement
-- Since the number of point clouds fluctuates more, this has a significant impact on the FPS.
-  - Consider using the ground removal or range filter algorithms provided in [cuPCL](https://github.com/NVIDIA-AI-IOT/cuPCL), which can decrease the inference time by lidar.
-- We just implemented the recommended partial quantization method. However, users can further reduce the inference latency by sparse pruning and 4:2 sparsity.
-  - In the resnet50 model at large resolutions, using the --sparsity=force option can significantly improve inference performance. For more details, please refer to [ASP](https://github.com/NVIDIA/apex/tree/master/apex/contrib/sparsity) (automatic sparsity tools).
-- In general, the camera backbone has less impact on accuracy and more impact on latency.
-  - A lighter camera backbone (such as resnet34) will achieve lower latency.
+The external MapDiffusion repo is expected at:
 
-## References
-- [BEVFusion: Multi-Task Multi-Sensor Fusion with Unified Bird's-Eye View Representation](https://arxiv.org/abs/2205.13542)
-- [BEVFusion Repository](https://github.com/mit-han-lab/bevfusion)
+```text
+/home/018198687/Mapping/mapdiffusion
+```
+
+If your path is different, edit `MAPDIFF_ROOT` in `setup_env.sh`.
+
+---
+
+## 3. Setup
+
+Create `setup_env.sh` in the repo root:
+
+```bash
+cat > setup_env.sh <<'SH'
+#!/bin/bash
+
+export CUDA_MAPDIFF_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export CUDA_BEV_ROOT="$CUDA_MAPDIFF_ROOT"
+
+export MAPDIFF_ROOT=/home/018198687/Mapping/mapdiffusion
+
+export TRT_ROOT=/home/018198687/Mapping/local/TensorRT-8.5.3.1
+export SMN_TORCH_LIB=/home/018198687/ls/envs/streammapnet/lib/python3.8/site-packages/torch/lib
+export CUDA11_RUNTIME=/home/018198687/Mapping/local/cuda11_runtime_libs_from_other_env
+export NVHPC_MATH_LIB=/opt/fs/atipa/local/opt/ohpc/pub/apps/nvidia/nvhpc/24.11/Linux_x86_64/24.11/math_libs/11.8/targets/x86_64-linux/lib
+
+export LD_LIBRARY_PATH="$TRT_ROOT/lib:$NVHPC_MATH_LIB:$SMN_TORCH_LIB:/usr/local/cuda-11.1/lib64:$CUDA11_RUNTIME:$LD_LIBRARY_PATH"
+export PYTHONPATH="$CUDA_MAPDIFF_ROOT:$MAPDIFF_ROOT:$PYTHONPATH"
+
+export CONFIG="$CUDA_MAPDIFF_ROOT/model/mapdiffusion_temporal_routeB/temporal_config.py"
+export ENGINE_DIR="$CUDA_MAPDIFF_ROOT/model/mapdiffusion_temporal_routeB/build"
+export PLUGIN_DIR="$CUDA_MAPDIFF_ROOT/build/plugins"
+
+echo "CUDA_MAPDIFF_ROOT=$CUDA_MAPDIFF_ROOT"
+echo "MAPDIFF_ROOT=$MAPDIFF_ROOT"
+echo "CONFIG=$CONFIG"
+echo "ENGINE_DIR=$ENGINE_DIR"
+echo "PLUGIN_DIR=$PLUGIN_DIR"
+SH
+
+chmod +x setup_env.sh
+```
+
+Load it:
+
+```bash
+conda activate streammapnet
+source setup_env.sh
+```
+
+Test:
+
+```bash
+python - <<'PY'
+import os
+import tensorrt as trt
+import torch
+
+print("TensorRT:", trt.__version__)
+print("Torch:", torch.__version__, torch.version.cuda)
+print("CONFIG exists:", os.path.exists(os.environ["CONFIG"]))
+print("ENGINE_DIR exists:", os.path.exists(os.environ["ENGINE_DIR"]))
+print("PLUGIN_DIR exists:", os.path.exists(os.environ["PLUGIN_DIR"]))
+PY
+```
+
+Expected:
+
+```text
+TensorRT: 8.5.3.1
+Torch: 1.9.0+cu111
+CONFIG exists: True
+ENGINE_DIR exists: True
+PLUGIN_DIR exists: True
+```
+
+---
+
+## 4. Smoke test: 2-sample inference
+
+```bash
+conda activate streammapnet
+source setup_env.sh
+
+OUT="$CUDA_MAPDIFF_ROOT/runs/smoke_2"
+rm -rf "$OUT"
+mkdir -p "$OUT"
+
+CUDA_LAUNCH_BLOCKING=1 \
+python ports/mapdiffusion_temporal_routeB/run/run_temporal_routeB_val_submission.py \
+  --config "$CONFIG" \
+  --out-dir "$OUT" \
+  --start 0 \
+  --limit 2 \
+  --seed 123 \
+  2>&1 | tee "$OUT/run.log"
+```
+
+Check:
+
+```bash
+grep -n "score_max\|saved submission\|Traceback\|Error" "$OUT/run.log"
+ls -lh "$OUT/submission_vector.json"
+```
+
+A successful smoke test should show high scores for the first two samples and save:
+
+```text
+runs/smoke_2/submission_vector.json
+```
+
+In the validated self-contained run, both engine/plugin paths loaded from the repo and the first two samples produced `score_max` around `0.92`.
+
+---
+
+## 5. Full validation inference
+
+Full nuScenes validation has 5981 samples.
+
+```bash
+conda activate streammapnet
+source setup_env.sh
+
+OUT="$CUDA_MAPDIFF_ROOT/runs/full_val"
+rm -rf "$OUT"
+mkdir -p "$OUT"
+
+CUDA_LAUNCH_BLOCKING=1 \
+python ports/mapdiffusion_temporal_routeB/run/run_temporal_routeB_val_submission.py \
+  --config "$CONFIG" \
+  --out-dir "$OUT" \
+  --start 0 \
+  --limit 5981 \
+  --seed 123 \
+  2>&1 | tee "$OUT/run.log"
+```
+
+Output:
+
+```text
+runs/full_val/submission_vector.json
+```
+
+---
+
+## 6. Chunked full validation
+
+```bash
+conda activate streammapnet
+source setup_env.sh
+
+export BASE_OUT="$CUDA_MAPDIFF_ROOT/runs/full_val_chunks"
+export TOTAL=5981
+export CHUNK=500
+export SEED=123
+
+rm -rf "$BASE_OUT"
+mkdir -p "$BASE_OUT"
+
+ports/mapdiffusion_temporal_routeB/run/run_temporal_routeB_chunks.sh \
+  2>&1 | tee "$BASE_OUT/full_chunk_run.log"
+```
+
+Each chunk writes:
+
+```text
+runs/full_val_chunks/chunk_*/submission_vector.json
+```
+
+---
+
+## 7. Evaluate submission
+
+```bash
+conda activate streammapnet
+source setup_env.sh
+
+SUB="$CUDA_MAPDIFF_ROOT/runs/full_val/submission_vector.json"
+EVAL_OUT="$CUDA_MAPDIFF_ROOT/runs/full_val/eval_direct_metric"
+mkdir -p "$EVAL_OUT"
+
+python scripts/eval_submission_direct.py \
+  --config "$CONFIG" \
+  --submission "$SUB" \
+  --out-dir "$EVAL_OUT" \
+  2>&1 | tee "$EVAL_OUT/eval.log"
+```
+
+Summarize:
+
+```bash
+grep -n "category\|ped_crossing\|divider\|boundary\|mAP_normal\|eval_res" \
+  "$EVAL_OUT/eval.log"
+```
+
+---
+
+## 8. Important runtime notes
+
+### Correct BEV input
+
+The MapDiffusion head must use:
+
+```text
+Engine D output: fused_bev
+```
+
+Do not feed raw BEV encoder output into the MapDiffusion head for the final temporal pipeline.
+
+### First-frame vs temporal head
+
+Use:
+
+```text
+C_first      for the first frame in each scene
+C_temporal   for subsequent frames
+```
+
+### Temporal state
+
+The runtime keeps and updates:
+
+```text
+prev_bev_state
+prev_query_feat_state
+```
+
+Both reset at scene boundaries.
+
+### Diagnostic flags
+
+Use only for parity debugging:
+
+```text
+PT_QUERY_REPLAY=1
+PT_PREVQ_REPLAY=1
+PT_BEV_REPLAY=1
+PT_PARITY_NO_D_NO_QMEM=1
+```
+
+---
+
+## 9. Troubleshooting
+
+### `ImportError: libnvinfer.so.8`
+
+Check TensorRT path:
+
+```bash
+export TRT_ROOT=/home/018198687/Mapping/local/TensorRT-8.5.3.1
+export LD_LIBRARY_PATH="$TRT_ROOT/lib:$LD_LIBRARY_PATH"
+```
+
+Test:
+
+```bash
+python - <<'PY'
+import tensorrt as trt
+print(trt.__version__)
+PY
+```
+
+### `ImportError: libcublas.so.11`
+
+Add CUDA/Torch/NVHPC libraries:
+
+```bash
+export SMN_TORCH_LIB=/home/018198687/ls/envs/streammapnet/lib/python3.8/site-packages/torch/lib
+export CUDA11_RUNTIME=/home/018198687/Mapping/local/cuda11_runtime_libs_from_other_env
+export NVHPC_MATH_LIB=/opt/fs/atipa/local/opt/ohpc/pub/apps/nvidia/nvhpc/24.11/Linux_x86_64/24.11/math_libs/11.8/targets/x86_64-linux/lib
+
+export LD_LIBRARY_PATH="$TRT_ROOT/lib:$NVHPC_MATH_LIB:$SMN_TORCH_LIB:/usr/local/cuda-11.1/lib64:$CUDA11_RUNTIME:$LD_LIBRARY_PATH"
+```
+
+### Plugin deserialization error
+
+Make sure the plugin libraries exist:
+
+```bash
+ls -lh build/libmapdiffusion_msda.so
+ls -lh build/plugins/*.so
+```
+
+The runner loads these before deserializing TensorRT engines.
+
+---
+
+## 10. Minimal command sequence
+
+```bash
+git clone https://github.com/manavgoel472003/CUDA-MapDiffusion-Temporal.git
+cd CUDA-MapDiffusion-Temporal
+
+# Download artifacts and place them under:
+# model/mapdiffusion_temporal_routeB/build/
+# build/
+# build/plugins/
+
+conda activate streammapnet
+source setup_env.sh
+
+OUT="$CUDA_MAPDIFF_ROOT/runs/smoke_2"
+mkdir -p "$OUT"
+
+CUDA_LAUNCH_BLOCKING=1 \
+python ports/mapdiffusion_temporal_routeB/run/run_temporal_routeB_val_submission.py \
+  --config "$CONFIG" \
+  --out-dir "$OUT" \
+  --start 0 \
+  --limit 2 \
+  --seed 123 \
+  2>&1 | tee "$OUT/run.log"
+```
