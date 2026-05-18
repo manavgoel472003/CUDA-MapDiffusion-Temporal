@@ -21,46 +21,216 @@ The important implementation detail is that the MapDiffusion head must receive t
 
 ---
 
-## 1. Large artifacts
+## Key result: inference latency
+
+This deployment ports Temporal MapDiffusion inference from the original PyTorch/ONNX-style runtime into a TensorRT/CUDA pipeline.
+
+| Runtime mode | Approx. latency / frame | Notes |
+|---|---:|---|
+| Before optimization | ~300 ms | Original non-optimized model/runtime path. |
+| TensorRT FP32 | ~70 ms | Optimized CUDA/TensorRT runtime with FP32 engines. |
+| TensorRT FP16 | TBD / add measured number | Add the final measured FP16 latency once benchmarked on the target GPU. |
+
+Approximate confirmed speedup from the optimized FP32 TensorRT path:
+
+```text
+300 ms -> 70 ms
+~4.3x faster
+```
+
+Latency depends on GPU, TensorRT build flags, precision, batch size, I/O overhead, and whether timing includes preprocessing/postprocessing.
+
+---
+
+## Repo structure
+
+Expected repository layout:
+
+```text
+CUDA-MapDiffusion-Temporal/
+├── README.md
+├── setup_env.sh                         # local environment setup
+├── src/                                 # CUDA/C++ source and TensorRT plugin source
+│   ├── common/
+│   ├── bevfusion/
+│   ├── onnx/
+│   └── plugins/
+├── tool/                                # CUDA-BEVFusion build/helper scripts
+├── tools/
+│   └── temporal_routeB/                 # ONNX export scripts for Temporal Route-B
+├── ports/
+│   └── mapdiffusion_temporal_routeB/
+│       ├── export/                      # export/build helper scripts
+│       ├── paths/                       # path helpers
+│       ├── parity/                      # parity/debug scripts
+│       └── run/
+│           ├── run_temporal_routeB_val_submission.py
+│           ├── run_temporal_routeB_chunks.sh
+│           ├── compare_e2e_traces.py
+│           └── visualization / replay utilities
+├── model/
+│   └── mapdiffusion_temporal_routeB/
+│       ├── temporal_config.py
+│       └── build/                       # downloaded TensorRT .plan files go here
+├── build/
+│   ├── libmapdiffusion_msda.so           # downloaded plugin library
+│   └── plugins/                          # downloaded plugin libraries
+├── scripts/
+│   └── eval_submission_direct.py         # direct metric eval from submission_vector.json
+├── artifacts/
+│   └── videos/
+│       └── output_demo.mp4               # optional manually uploaded output video
+└── runs/                                # generated inference/eval outputs, not committed
+```
+
+Folders that are generated during inference/eval and should usually stay out of Git:
+
+```text
+runs/
+debug*/
+work_dirs/
+eval_work_dir/
+*_trace*/
+*_debug*/
+trt_eval*/
+e2e_trace*/
+```
+
+---
+
+## Exact engine/plugin artifacts to download
 
 TensorRT `.plan` engines and compiled `.so` plugin libraries are not tracked in Git.
 
 Download the artifacts from:
 
 ```text
-PASTE_ARTIFACT_LINK_HERE
+https://drive.google.com/drive/folders/15zWdbM1xNcBinowPqMhtT0hnobUEdcGr?usp=drive_link
 ```
 
-After downloading, place them exactly like this:
+After downloading, place the files exactly as shown below.
+
+### Required TensorRT plan files
+
+Put these **five `.plan` files** in:
 
 ```text
-CUDA-MapDiffusion-Temporal/
-  model/mapdiffusion_temporal_routeB/build/
-    camera.backbone_fpn.temporal87000.dcnv2.fp32.im2colgemm.plan
-    camera.bevformer_encoder.temporal87000.tsa_sca_plugin.fp32.plan
-    stream_fusion_neck.temporal87000.fp32.plan
-    mapdiffusion.temporal_head.manual_tq.presplit.opset13.fp32.plan
-    mapdiffusion.temporal_head.manual_tq.firstframe.opset13.fp32.plan
-
-  build/
-    libmapdiffusion_msda.so
-    plugins/
-      libmmcv_dcnv2_trt.so
-      libbevformer_tsa_trt.so
-      libbevformer_sca_trt.so
+model/mapdiffusion_temporal_routeB/build/
 ```
 
-Check:
+Required files:
+
+```text
+model/mapdiffusion_temporal_routeB/build/camera.backbone_fpn.temporal87000.dcnv2.fp32.im2colgemm.plan
+model/mapdiffusion_temporal_routeB/build/camera.bevformer_encoder.temporal87000.tsa_sca_plugin.fp32.plan
+model/mapdiffusion_temporal_routeB/build/stream_fusion_neck.temporal87000.fp32.plan
+model/mapdiffusion_temporal_routeB/build/mapdiffusion.temporal_head.manual_tq.presplit.opset13.fp32.plan
+model/mapdiffusion_temporal_routeB/build/mapdiffusion.temporal_head.manual_tq.firstframe.opset13.fp32.plan
+```
+
+### Optional build logs
+
+These are optional and only useful for reproducibility/debugging. They are not required for inference:
+
+```text
+model/mapdiffusion_temporal_routeB/build/camera.backbone_fpn.temporal87000.dcnv2.fp32.im2colgemm.build.log
+model/mapdiffusion_temporal_routeB/build/camera.bevformer_encoder.temporal87000.tsa_sca_plugin.fp32.build.log
+model/mapdiffusion_temporal_routeB/build/stream_fusion_neck.temporal87000.fp32.build.log
+model/mapdiffusion_temporal_routeB/build/mapdiffusion.temporal_head.manual_tq.presplit.opset13.fp32.build.log
+model/mapdiffusion_temporal_routeB/build/build_firstframe_head.log
+```
+
+### Required TensorRT plugin libraries
+
+Put this file in:
+
+```text
+build/
+```
+
+Required:
+
+```text
+build/libmapdiffusion_msda.so
+```
+
+Put these files in:
+
+```text
+build/plugins/
+```
+
+Required:
+
+```text
+build/plugins/libmmcv_dcnv2_trt.so
+build/plugins/libbevformer_tsa_trt.so
+build/plugins/libbevformer_sca_trt.so
+```
+
+### `.engine` files
+
+This runtime uses TensorRT serialized engine files with the `.plan` extension.
+
+There are **no separate `.engine` files required** for the current working pipeline. If you rename `.plan` to `.engine`, you must also update the paths in:
+
+```text
+ports/mapdiffusion_temporal_routeB/run/run_temporal_routeB_val_submission.py
+```
+
+Recommended: keep the `.plan` filenames exactly as listed above.
+
+### Artifact folder checklist
+
+After downloading, this command should succeed:
 
 ```bash
-ls -lh model/mapdiffusion_temporal_routeB/build/*.plan
+ls -lh model/mapdiffusion_temporal_routeB/build/camera.backbone_fpn.temporal87000.dcnv2.fp32.im2colgemm.plan
+ls -lh model/mapdiffusion_temporal_routeB/build/camera.bevformer_encoder.temporal87000.tsa_sca_plugin.fp32.plan
+ls -lh model/mapdiffusion_temporal_routeB/build/stream_fusion_neck.temporal87000.fp32.plan
+ls -lh model/mapdiffusion_temporal_routeB/build/mapdiffusion.temporal_head.manual_tq.presplit.opset13.fp32.plan
+ls -lh model/mapdiffusion_temporal_routeB/build/mapdiffusion.temporal_head.manual_tq.firstframe.opset13.fp32.plan
+
 ls -lh build/libmapdiffusion_msda.so
-ls -lh build/plugins/*.so
+ls -lh build/plugins/libmmcv_dcnv2_trt.so
+ls -lh build/plugins/libbevformer_tsa_trt.so
+ls -lh build/plugins/libbevformer_sca_trt.so
 ```
 
 ---
 
-## 2. External dependencies
+## Engine overview
+
+The runtime is split into several TensorRT engines so that the Temporal MapDiffusion pipeline can be executed end-to-end while keeping each exported subgraph manageable.
+
+| Engine | File | Purpose | Main input | Main output |
+|---|---|---|---|---|
+| Engine A: Backbone + FPN | `camera.backbone_fpn.temporal87000.dcnv2.fp32.im2colgemm.plan` | Extracts multi-scale image features from the 6 nuScenes camera images. Uses the camera backbone/FPN path exported from the trained model. | `img` with shape `[1, 6, 3, 480, 800]` | `feat0`, `feat1`, `feat2` |
+| Engine B: BEVFormer encoder | `camera.bevformer_encoder.temporal87000.tsa_sca_plugin.fp32.plan` | Projects multi-view image features into BEV using BEVFormer-style temporal/spatial attention plugins. | `feat0`, `feat1`, `feat2`, `ego2img` | `bev_features` with shape `[1, 256, 50, 100]` |
+| Engine D: StreamFusionNeck | `stream_fusion_neck.temporal87000.fp32.plan` | Fuses current BEV with pose-warped previous BEV to produce the temporal BEV used by the map head. | `prev_bev`, `curr_bev` | `fused_bev` |
+| Engine C_first: first-frame MapDiffusion head | `mapdiffusion.temporal_head.manual_tq.firstframe.opset13.fp32.plan` | Runs the MapDiffusion head for the first frame of a scene, where previous query memory is invalid or unavailable. | `fused_bev`, `query_coords`, `timestep` | `query_feat`, `line_preds`, `cls_logits` |
+| Engine C_temporal: temporal MapDiffusion head | `mapdiffusion.temporal_head.manual_tq.presplit.opset13.fp32.plan` | Runs the temporal MapDiffusion head for later frames using previous-frame query feature memory. | `fused_bev`, `query_coords`, `timestep`, `prev_query_feat` | `query_feat`, `line_preds`, `cls_logits` |
+
+Runtime state:
+
+```text
+prev_bev_state         # previous fused BEV, pose-warped before Engine D
+prev_query_feat_state  # previous frame final query features, used by C_temporal
+```
+
+Both states reset at scene boundaries.
+
+---
+
+## Output demo video
+https://github.com/user-attachments/assets/54e35321-4621-468b-adc9-86a76a6df837
+```text
+Also in : artifacts/trt_warpbev_dataset_order_idx1566_1587_cv2.mp4
+```
+
+---
+
+## External dependencies
 
 This repo assumes the same environment used for the original Temporal MapDiffusion deployment.
 
@@ -91,7 +261,7 @@ If your path is different, edit `MAPDIFF_ROOT` in `setup_env.sh`.
 
 ---
 
-## 3. Setup
+## Setup
 
 Create `setup_env.sh` in the repo root:
 
@@ -161,7 +331,7 @@ PLUGIN_DIR exists: True
 
 ---
 
-## 4. Smoke test: 2-sample inference
+## Smoke test: 2-sample inference
 
 ```bash
 conda activate streammapnet
@@ -198,7 +368,7 @@ In the validated self-contained run, both engine/plugin paths loaded from the re
 
 ---
 
-## 5. Full validation inference
+## Full validation inference
 
 Full nuScenes validation has 5981 samples.
 
@@ -228,7 +398,7 @@ runs/full_val/submission_vector.json
 
 ---
 
-## 6. Chunked full validation
+## Chunked full validation
 
 ```bash
 conda activate streammapnet
@@ -254,7 +424,7 @@ runs/full_val_chunks/chunk_*/submission_vector.json
 
 ---
 
-## 7. Evaluate submission
+## Evaluate submission
 
 ```bash
 conda activate streammapnet
@@ -280,7 +450,7 @@ grep -n "category\|ped_crossing\|divider\|boundary\|mAP_normal\|eval_res" \
 
 ---
 
-## 8. Important runtime notes
+## Important runtime notes
 
 ### Correct BEV input
 
@@ -325,7 +495,7 @@ PT_PARITY_NO_D_NO_QMEM=1
 
 ---
 
-## 9. Troubleshooting
+## Troubleshooting
 
 ### `ImportError: libnvinfer.so.8`
 
@@ -370,13 +540,13 @@ The runner loads these before deserializing TensorRT engines.
 
 ---
 
-## 10. Minimal command sequence
+## Minimal command sequence
 
 ```bash
 git clone https://github.com/manavgoel472003/CUDA-MapDiffusion-Temporal.git
 cd CUDA-MapDiffusion-Temporal
 
-# Download artifacts and place them under:
+# Download artifacts from <YOUR LINK> and place them under:
 # model/mapdiffusion_temporal_routeB/build/
 # build/
 # build/plugins/
