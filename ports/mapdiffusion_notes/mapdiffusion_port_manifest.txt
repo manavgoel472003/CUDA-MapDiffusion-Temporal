@@ -1,0 +1,308 @@
+=== MapDiffusion classes ===
+third_party/mapdiffusion_ref/plugin/models/mapers/MapDiffusion.py:15:class MapDiffusion(BaseMapperDiffuse):
+third_party/mapdiffusion_ref/plugin/models/mapers/MapDiffusion_bevfusion_v1.py:35:class MapDiffusionBEVFusion(BaseMapperDiffuse):
+third_party/mapdiffusion_ref/plugin/models/mapers/MapDiffusion_bevfusion.py:102:class MapDiffusionBEVFusion(BaseMapperDiffuse):
+third_party/mapdiffusion_ref/plugin/models/mapers/MapDiffusion_bevfusion_v2.py:90:class MapDiffusionBEVFusion(BaseMapperDiffuse):
+third_party/mapdiffusion_ref/plugin/models/mapers/MapDiffusion_lidar_only.py:135:class MapDiffusionLiDAROnly(BaseMapperDiffuse):
+third_party/mapdiffusion_ref/plugin/models/mapers/MapDiffusion_improved.py:41:class MapDiffusion(BaseMapperDiffuse):
+third_party/mapdiffusion_ref/plugin/models/mapers/MapDiffusionTemporal.py:16:class MapDiffusionTemporal(BaseMapperDiffuse):
+third_party/mapdiffusion_ref/plugin/models/mapers/MapDiffusion_lidar.py:62:class MapDiffusionLiDAR(BaseMapperDiffuse):
+
+=== Diffuse head ===
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuseTemporal.py:42:class MapDetectorHeadDiffuseTemporal(MapDetectorHeadDiffuse):
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse_adaln.py:99:class MapDetectorHeadDiffuse(nn.Module):
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse.py:86:class MapDetectorHeadDiffuse(nn.Module):
+
+=== Diffuse transformer decoder ===
+third_party/mapdiffusion_ref/plugin/models/transformer_utils/MapTransformer_adaln.py:24:class MapTransformerDecoderDiffuse(BaseModule):
+third_party/mapdiffusion_ref/plugin/models/transformer_utils/MapTransformer_adaln_post.py:26:class MapTransformerDecoderDiffuse(BaseModule):
+third_party/mapdiffusion_ref/plugin/models/transformer_utils/MapTransformer.py:24:class MapTransformerDecoderDiffuse(BaseModule):
+
+=== Diffusion / DDIM / sampling ===
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_pre.py:42:# diffusion
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_pre.py:66:# meta info
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_pre.py:67:meta = dict(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_pre.py:235:            beta=0.01,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_pre.py:245:                    beta=0.01,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_pre.py:284:        meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_pre.py:304:        meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_pre.py:315:    meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_pre.py:327:        dict(type='Collect3D', keys=['vectors'], meta_keys=['token']),
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_pre.py:339:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_pre.py:349:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_pre.py:361:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_pre.py:403:    eval_diffusion_eta=0.5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_pre.py:404:    eval_diffusion_sampling_timesteps=5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_pre.py:405:    eval_diffusion_query_threshold=0.5,
+third_party/mapdiffusion_ref/plugin/configs/streammapnet.py:48:# meta info for submission pkl
+third_party/mapdiffusion_ref/plugin/configs/streammapnet.py:49:meta = dict(
+third_party/mapdiffusion_ref/plugin/configs/streammapnet.py:218:            beta=0.01,
+third_party/mapdiffusion_ref/plugin/configs/streammapnet.py:225:                    reg_cost=dict(type='LinesL1Cost', weight=50.0, beta=0.01, permute=permute),
+third_party/mapdiffusion_ref/plugin/configs/streammapnet.py:259:    dict(type='Collect3D', keys=['img', 'vectors'], meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/streammapnet.py:274:    dict(type='Collect3D', keys=['img'], meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/streammapnet.py:285:    meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/streammapnet.py:297:        dict(type='Collect3D', keys=['vectors'], meta_keys=['token'])
+third_party/mapdiffusion_ref/plugin/configs/streammapnet.py:310:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/streammapnet.py:320:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/streammapnet.py:332:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_scratch_32e_start1.py:71:meta = dict(
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_scratch_32e_start1.py:274:            beta=0.01,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_scratch_32e_start1.py:288:                    beta=0.01,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_scratch_32e_start1.py:352:        meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_scratch_32e_start1.py:377:        meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_scratch_32e_start1.py:393:    meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_scratch_32e_start1.py:408:            meta_keys=['token'],
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_scratch_32e_start1.py:422:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_scratch_32e_start1.py:433:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_scratch_32e_start1.py:446:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_scratch_32e_start1.py:497:    eval_diffusion_eta=0.5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_scratch_32e_start1.py:498:    eval_diffusion_sampling_timesteps=5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_scratch_32e_start1.py:499:    eval_diffusion_query_threshold=0.5,
+third_party/mapdiffusion_ref/plugin/configs/nusc_newsplit_480_60x30_mapdiffusion_brightness_15.py:38:        meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/nusc_newsplit_480_60x30_mapdiffusion_brightness_15.py:56:    eval_diffusion_eta=0.5,
+third_party/mapdiffusion_ref/plugin/configs/nusc_newsplit_480_60x30_mapdiffusion_brightness_15.py:57:    eval_diffusion_sampling_timesteps=5,
+third_party/mapdiffusion_ref/plugin/configs/nusc_newsplit_480_60x30_mapdiffusion_brightness_15.py:58:    eval_diffusion_query_threshold=0.5
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_config.py:6:load_from = '/home/018198687/Mapping/mapdiffusion/work_dirs/new_mapdiff/iter_73080.pth'
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_config.py:43:meta = dict(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_config.py:212:            beta=0.01,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_config.py:222:                    beta=0.01,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_config.py:263:        meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_config.py:281:        meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_config.py:290:    meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_config.py:302:        dict(type='Collect3D', keys=['vectors'], meta_keys=['token'])
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_config.py:314:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_config.py:324:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_config.py:336:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_config.py:374:    eval_diffusion_eta=0.5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_config.py:375:    eval_diffusion_sampling_timesteps=5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_config.py:376:    eval_diffusion_query_threshold=0.5
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_bevfusion_config_proper.py:69:meta = dict(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_bevfusion_config_proper.py:247:        loss_reg=dict(type='LinesL1Loss', loss_weight=50.0, beta=0.01),
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_bevfusion_config_proper.py:254:                    type='LinesL1Cost', weight=50.0, beta=0.01,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_bevfusion_config_proper.py:287:        meta_keys=('token', 'ego2img', 'sample_idx', 'ego2global_translation',
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_bevfusion_config_proper.py:306:        meta_keys=('token', 'ego2img', 'sample_idx', 'ego2global_translation',
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_bevfusion_config_proper.py:314:    meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_bevfusion_config_proper.py:325:        dict(type='Collect3D', keys=['vectors'], meta_keys=['token'])
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_bevfusion_config_proper.py:336:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_bevfusion_config_proper.py:345:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_bevfusion_config_proper.py:356:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_bevfusion_config_proper.py:396:    eval_diffusion_eta=0.5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_bevfusion_config_proper.py:397:    eval_diffusion_sampling_timesteps=5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_bevfusion_config_proper.py:398:    eval_diffusion_query_threshold=0.5)
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion.py:28:# diffusion 
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion.py:52:# meta info for submission pkl
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion.py:53:meta = dict(
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion.py:218:            beta=0.01,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion.py:225:                    reg_cost=dict(type='LinesL1Cost', weight=50.0, beta=0.01, permute=permute),
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion.py:259:    # gts are added to train diffusion model
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion.py:260:    dict(type='Collect3D', keys=['img', 'vectors', 'gts'], meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion.py:275:    dict(type='Collect3D', keys=['img'], meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion.py:286:    meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion.py:298:        dict(type='Collect3D', keys=['vectors'], meta_keys=['token'])
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion.py:311:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion.py:321:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion.py:333:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion.py:371:    eval_diffusion_eta = 0.5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion.py:372:    eval_diffusion_sampling_timesteps = 5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion.py:373:    eval_diffusion_query_threshold = 0.5)
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_query_1gpu_a100.py:71:meta = dict(
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_query_1gpu_a100.py:271:            beta=0.01,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_query_1gpu_a100.py:285:                    beta=0.01,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_query_1gpu_a100.py:347:        meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_query_1gpu_a100.py:372:        meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_query_1gpu_a100.py:388:    meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_query_1gpu_a100.py:403:            meta_keys=['token'],
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_query_1gpu_a100.py:417:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_query_1gpu_a100.py:428:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_query_1gpu_a100.py:441:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_query_1gpu_a100.py:492:    eval_diffusion_eta=0.5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_query_1gpu_a100.py:493:    eval_diffusion_sampling_timesteps=5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_query_1gpu_a100.py:494:    eval_diffusion_query_threshold=0.5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_only.py:8:resume_from = '/home/018198687/Mapping/mapdiffusion/work_dirs/mapdiff_adaln_only/iter_27840.pth'
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_only.py:45:meta = dict(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_only.py:217:            beta=0.01,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_only.py:227:                    beta=0.01,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_only.py:267:        meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_only.py:285:        meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_only.py:294:    meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_only.py:306:        dict(type='Collect3D', keys=['vectors'], meta_keys=['token'])
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_only.py:318:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_only.py:328:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_only.py:340:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_only.py:378:    eval_diffusion_eta=0.5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_only.py:379:    eval_diffusion_sampling_timesteps=5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_only.py:380:    eval_diffusion_query_threshold=0.5
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_pre_8.py:7:load_from = '/home/018198687/Mapping/mapdiffusion/work_dirs/new_mapdiff/iter_73080.pth'
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_pre_8.py:45:meta = dict(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_pre_8.py:217:            beta=0.01,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_pre_8.py:227:                    beta=0.01,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_pre_8.py:267:        meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_pre_8.py:285:        meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_pre_8.py:294:    meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_pre_8.py:306:        dict(type='Collect3D', keys=['vectors'], meta_keys=['token'])
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_pre_8.py:318:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_pre_8.py:328:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_pre_8.py:340:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_pre_8.py:378:    eval_diffusion_eta=0.5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_pre_8.py:379:    eval_diffusion_sampling_timesteps=5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adaln_pre_8.py:380:    eval_diffusion_query_threshold=0.5
+third_party/mapdiffusion_ref/plugin/configs/nusc_newsplit_480_60x30_mapdiffusion_brightness_05.py:38:        meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/nusc_newsplit_480_60x30_mapdiffusion_brightness_05.py:56:    eval_diffusion_eta=0.5,
+third_party/mapdiffusion_ref/plugin/configs/nusc_newsplit_480_60x30_mapdiffusion_brightness_05.py:57:    eval_diffusion_sampling_timesteps=5,
+third_party/mapdiffusion_ref/plugin/configs/nusc_newsplit_480_60x30_mapdiffusion_brightness_05.py:58:    eval_diffusion_query_threshold=0.5
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_from_new_mapdiff_8e.py:74:meta = dict(
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_from_new_mapdiff_8e.py:289:            beta=0.01,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_from_new_mapdiff_8e.py:303:                    beta=0.01,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_from_new_mapdiff_8e.py:367:        meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_from_new_mapdiff_8e.py:392:        meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_from_new_mapdiff_8e.py:408:    meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_from_new_mapdiff_8e.py:423:            meta_keys=['token'],
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_from_new_mapdiff_8e.py:437:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_from_new_mapdiff_8e.py:448:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_from_new_mapdiff_8e.py:461:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_from_new_mapdiff_8e.py:511:    eval_diffusion_eta=0.5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_from_new_mapdiff_8e.py:512:    eval_diffusion_sampling_timesteps=5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiffusion_temporal_from_new_mapdiff_8e.py:513:    eval_diffusion_query_threshold=0.5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_config.py:42:# diffusion
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_config.py:78:# meta info — NOTE: use_lidar=True
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_config.py:79:meta = dict(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_config.py:284:            beta=0.01,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_config.py:294:                    beta=0.01,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_config.py:343:        meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_config.py:366:        meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_config.py:376:    meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_config.py:388:        dict(type='Collect3D', keys=['vectors'], meta_keys=['token'])
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_config.py:400:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_config.py:410:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_config.py:422:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_config.py:462:    eval_diffusion_eta=0.5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_config.py:463:    eval_diffusion_sampling_timesteps=5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_config.py:464:    eval_diffusion_query_threshold=0.5
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_scratch.py:71:# ── Meta ──
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_scratch.py:72:meta = dict(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_scratch.py:289:            beta=0.01,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_scratch.py:299:                    beta=0.01,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_scratch.py:341:        meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_scratch.py:359:        meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_scratch.py:371:    meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_scratch.py:378:        dict(type='Collect3D', keys=['vectors'], meta_keys=['token']),
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_scratch.py:390:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_scratch.py:400:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_scratch.py:412:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_scratch.py:460:    eval_diffusion_eta=0.5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_scratch.py:461:    eval_diffusion_sampling_timesteps=5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_scratch.py:462:    eval_diffusion_query_threshold=0.5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_ft.py:45:load_from = '/home/018198687/Mapping/mapdiffusion/work_dirs/new_mapdiff/iter_73080.pth'
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_ft.py:97:meta = dict(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_ft.py:314:            beta=0.01,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_ft.py:324:                    beta=0.01,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_ft.py:366:        meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_ft.py:384:        meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_ft.py:396:    meta=dict(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_ft.py:406:        dict(type='Collect3D', keys=['vectors'], meta_keys=['token']),
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_ft.py:418:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_ft.py:428:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_ft.py:440:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_ft.py:514:    eval_diffusion_eta=0.5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_ft.py:515:    eval_diffusion_sampling_timesteps=5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_adlan_bevfusion_ft.py:516:    eval_diffusion_query_threshold=0.5,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_only_config.py:56:# diffusion
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_only_config.py:94:# meta info
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_only_config.py:95:meta = dict(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_only_config.py:247:            beta=0.01,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_only_config.py:257:                    beta=0.01,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_only_config.py:304:        meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_only_config.py:327:        meta_keys=(
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_only_config.py:337:    meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_only_config.py:349:        dict(type='Collect3D', keys=['vectors'], meta_keys=['token'])
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_only_config.py:361:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_only_config.py:371:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_only_config.py:383:        meta=meta,
+third_party/mapdiffusion_ref/plugin/configs/mapdiff_lidar_only_config.py:462:    eval_diffusion_eta=0.5,
+
+=== BEV feature usage ===
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuseTemporal.py:103:                      bev_features,
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuseTemporal.py:108:        bev_features = self._prepare_context(bev_features)
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuseTemporal.py:110:        bs, C, H, W = bev_features.shape
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuseTemporal.py:111:        img_masks = bev_features.new_zeros((bs, H, W))
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuseTemporal.py:113:        device = bev_features.device
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuseTemporal.py:198:            mlvl_feats=[bev_features],
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuseTemporal.py:245:                     bev_features,
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuseTemporal.py:249:        bev_features = self._prepare_context(bev_features)
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuseTemporal.py:251:        bs, C, H, W = bev_features.shape
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuseTemporal.py:252:        img_masks = bev_features.new_zeros((bs, H, W))
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuseTemporal.py:254:        device = bev_features.device
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuseTemporal.py:325:            mlvl_feats=[bev_features],
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse_adaln.py:266:    def _prepare_context(self, bev_features):
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse_adaln.py:268:        device = bev_features.device
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse_adaln.py:271:        B, C, H, W = bev_features.shape
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse_adaln.py:272:        bev_mask = bev_features.new_zeros(B, H, W)
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse_adaln.py:274:        bev_features = self.input_proj(bev_features) + bev_pos_embeddings # (bs, embed_dims, H, W)
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse_adaln.py:276:        assert list(bev_features.shape) == [B, self.embed_dims, H, W]
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse_adaln.py:277:        return bev_features
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse_adaln.py:331:    def forward_train(self,coef, total_steps, inputs, bev_features, img_metas, gts):
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse_adaln.py:345:        bev_features = self._prepare_context(bev_features)
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse_adaln.py:347:        bs, C, H, W = bev_features.shape
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse_adaln.py:348:        img_masks = bev_features.new_zeros((bs, H, W))
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse_adaln.py:378:            mlvl_feats=[bev_features,],
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse_adaln.py:413:    def forward_test(self, query_coords, timestep, bev_features, img_metas):
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse_adaln.py:426:        bev_features = self._prepare_context(bev_features)
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse_adaln.py:428:        bs, C, H, W = bev_features.shape
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse_adaln.py:429:        img_masks = bev_features.new_zeros((bs, H, W))
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse_adaln.py:452:            mlvl_feats=[bev_features,],
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHead.py:180:    def _prepare_context(self, bev_features):
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHead.py:182:        device = bev_features.device
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHead.py:185:        B, C, H, W = bev_features.shape
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHead.py:186:        bev_mask = bev_features.new_zeros(B, H, W)
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHead.py:188:        bev_features = self.input_proj(bev_features) + bev_pos_embeddings # (bs, embed_dims, H, W)
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHead.py:190:        assert list(bev_features.shape) == [B, self.embed_dims, H, W]
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHead.py:191:        return bev_features
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHead.py:300:    def forward_train(self, bev_features, img_metas, gts):
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHead.py:314:        bev_features = self._prepare_context(bev_features)
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHead.py:316:        bs, C, H, W = bev_features.shape
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHead.py:317:        img_masks = bev_features.new_zeros((bs, H, W))
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHead.py:340:            mlvl_feats=[bev_features,],
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHead.py:410:    def forward_test(self, bev_features, img_metas):
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHead.py:424:        bev_features = self._prepare_context(bev_features)
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHead.py:426:        bs, C, H, W = bev_features.shape
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHead.py:427:        img_masks = bev_features.new_zeros((bs, H, W))
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHead.py:450:            mlvl_feats=[bev_features,],
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse.py:236:    def _prepare_context(self, bev_features):
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse.py:238:        device = bev_features.device
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse.py:241:        B, C, H, W = bev_features.shape
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse.py:242:        bev_mask = bev_features.new_zeros(B, H, W)
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse.py:244:        bev_features = self.input_proj(bev_features) + bev_pos_embeddings # (bs, embed_dims, H, W)
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse.py:246:        assert list(bev_features.shape) == [B, self.embed_dims, H, W]
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse.py:247:        return bev_features
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse.py:249:    def forward_train(self,coef, total_steps, inputs, bev_features, img_metas, gts):
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse.py:263:        bev_features = self._prepare_context(bev_features)
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse.py:265:        bs, C, H, W = bev_features.shape
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse.py:266:        img_masks = bev_features.new_zeros((bs, H, W))
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse.py:296:            mlvl_feats=[bev_features,],
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse.py:331:    def forward_test(self, query_coords, timestep, bev_features, img_metas):
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse.py:344:        bev_features = self._prepare_context(bev_features)
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse.py:346:        bs, C, H, W = bev_features.shape
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse.py:347:        img_masks = bev_features.new_zeros((bs, H, W))
+third_party/mapdiffusion_ref/plugin/models/heads/MapDetectorHeadDiffuse.py:370:            mlvl_feats=[bev_features,],
+third_party/mapdiffusion_ref/plugin/models/mapers/MapDiffusion.py:208:            bev_features=bev_feats, 
+third_party/mapdiffusion_ref/plugin/models/mapers/MapDiffusion_bevfusion_v1.py:203:        bev_features = self.pts_middle_encoder(voxel_features, coors,
+third_party/mapdiffusion_ref/plugin/models/mapers/MapDiffusion_bevfusion_v1.py:205:        x = self.pts_backbone(bev_features)
+third_party/mapdiffusion_ref/plugin/models/mapers/MapDiffusion_bevfusion_v1.py:371:            bev_features=bev_feats,
+third_party/mapdiffusion_ref/plugin/models/mapers/MapDiffusion_bevfusion.py:252:        bev_features = self.pts_middle_encoder(voxel_features, coors,
+third_party/mapdiffusion_ref/plugin/models/mapers/MapDiffusion_bevfusion.py:254:        x = self.pts_backbone(bev_features)
+third_party/mapdiffusion_ref/plugin/models/mapers/MapDiffusion_bevfusion.py:414:            bev_features=bev_feats,
+third_party/mapdiffusion_ref/plugin/models/mapers/MapDiffusion_bevfusion_v2.py:269:        bev_features = self.pts_middle_encoder(
+third_party/mapdiffusion_ref/plugin/models/mapers/MapDiffusion_bevfusion_v2.py:275:        x = self.pts_backbone(bev_features)
+third_party/mapdiffusion_ref/plugin/models/mapers/MapDiffusion_bevfusion_v2.py:543:            bev_features=bev_feats,
+third_party/mapdiffusion_ref/plugin/models/mapers/MapDiffusion_lidar_only.py:367:        bev_features = self.pts_middle_encoder(voxel_features, coors,
+third_party/mapdiffusion_ref/plugin/models/mapers/MapDiffusion_lidar_only.py:369:        x = self.pts_backbone(bev_features)
+third_party/mapdiffusion_ref/plugin/models/mapers/MapDiffusion_lidar_only.py:539:            bev_features=bev_feats,
+third_party/mapdiffusion_ref/plugin/models/mapers/MapDiffusion_improved.py:294:            bev_features=bev_feats, 
+third_party/mapdiffusion_ref/plugin/models/mapers/MapDiffusionTemporal.py:907:            bev_features=bev_feats,
+third_party/mapdiffusion_ref/plugin/models/mapers/StreamMapNet.py:183:            bev_features=bev_feats, 
+third_party/mapdiffusion_ref/plugin/models/mapers/MapDiffusion_lidar.py:508:            bev_features=bev_feats,
+third_party/mapdiffusion_ref/plugin/models/backbones/lidar_encoder.py:259:            bev_features (Tensor): [B, out_channels, bev_h, bev_w]
+third_party/mapdiffusion_ref/plugin/models/backbones/lidar_encoder.py:306:        bev_features = self.bev_backbone(bev_canvas)
+third_party/mapdiffusion_ref/plugin/models/backbones/lidar_encoder.py:308:        return bev_features
+third_party/mapdiffusion_ref/plugin/models/backbones/bevformer/transformer.py:78:    def get_bev_features(
+third_party/mapdiffusion_ref/plugin/models/backbones/bevformer_backbone.py:184:        outs =  self.transformer.get_bev_features(

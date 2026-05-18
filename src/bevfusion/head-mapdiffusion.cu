@@ -1,0 +1,218 @@
+#include "head-mapdiffusion.hpp"
+
+#include <cuda_fp16.h>
+#include <cuda_runtime.h>
+
+#include <algorithm>
+#include <numeric>
+#include <unordered_map>
+
+#include "common/check.hpp"
+#include "common/launch.cuh"
+#include "common/tensorrt.hpp"
+
+namespace bevfusion {
+namespace head {
+namespace mapdiffusion {
+
+static __global__ void half_to_float_kernel(int numel, const nvtype::half* src, float* dst) {
+  int idx = cuda_linear_index;
+  if (idx >= numel) return;
+
+  // nvtype::half has the same storage layout as CUDA __half in this repo,
+  // but it is not implicitly convertible to __half.
+  const __half* src_half = reinterpret_cast<const __half*>(src);
+  dst[idx] = __half2float(src_half[idx]);
+}
+
+static __global__ void fill_float_kernel(int numel, float* data, float value) {
+  int idx = cuda_linear_index;
+  if (idx >= numel) return;
+  data[idx] = value;
+}
+
+class MapDiffusionHeadImplement : public MapDiffusionHead {
+ public:
+  const char* BindingBEV = "bev_features";
+  const char* BindingQuery = "query_coords";
+  const char* BindingTimestep = "timestep";
+  const char* BindingCls = "cls_logits";
+  const char* BindingLines = "line_preds";
+
+  virtual ~MapDiffusionHeadImplement() {
+    if (cls_logits_device_) checkRuntime(cudaFree(cls_logits_device_));
+    if (line_preds_device_) checkRuntime(cudaFree(line_preds_device_));
+    if (cls_logits_host_) checkRuntime(cudaFreeHost(cls_logits_host_));
+    if (line_preds_host_) checkRuntime(cudaFreeHost(line_preds_host_));
+
+    if (bev_float_device_) checkRuntime(cudaFree(bev_float_device_));
+    if (query_device_) checkRuntime(cudaFree(query_device_));
+    if (timestep_device_) checkRuntime(cudaFree(timestep_device_));
+  }
+
+  bool init(const MapDiffusionParameter& param) {
+    param_ = param;
+
+    engine_ = TensorRT::load(param.model);
+    if (engine_ == nullptr) {
+      printf("[MapDiffusionHead] Failed to load engine: %s\n", param.model.c_str());
+      return false;
+    }
+
+    if (engine_->has_dynamic_dim()) {
+      printf("[MapDiffusionHead] Dynamic shapes are not supported yet.\n");
+      return false;
+    }
+
+    auto cls_shape = engine_->static_dims(BindingCls);
+    auto line_shape = engine_->static_dims(BindingLines);
+
+    Asserts(engine_->dtype(BindingBEV) == TensorRT::DType::FLOAT, "bev_features must be FP32.");
+    Asserts(engine_->dtype(BindingQuery) == TensorRT::DType::FLOAT, "query_coords must be FP32.");
+    Asserts(engine_->dtype(BindingTimestep) == TensorRT::DType::FLOAT, "timestep must be FP32.");
+    Asserts(engine_->dtype(BindingCls) == TensorRT::DType::FLOAT, "cls_logits must be FP32.");
+    Asserts(engine_->dtype(BindingLines) == TensorRT::DType::FLOAT, "line_preds must be FP32.");
+
+    cls_numel_ = std::accumulate(cls_shape.begin(), cls_shape.end(), 1, std::multiplies<int>());
+    line_numel_ = std::accumulate(line_shape.begin(), line_shape.end(), 1, std::multiplies<int>());
+
+    bev_numel_ = param.batch_size * param.bev_channels * param.bev_height * param.bev_width;
+    query_numel_ = param.batch_size * param.num_queries * param.num_points * 2;
+
+    checkRuntime(cudaMalloc(&cls_logits_device_, cls_numel_ * sizeof(float)));
+    checkRuntime(cudaMalloc(&line_preds_device_, line_numel_ * sizeof(float)));
+
+    checkRuntime(cudaMallocHost(&cls_logits_host_, cls_numel_ * sizeof(float)));
+    checkRuntime(cudaMallocHost(&line_preds_host_, line_numel_ * sizeof(float)));
+
+    checkRuntime(cudaMalloc(&bev_float_device_, bev_numel_ * sizeof(float)));
+    checkRuntime(cudaMalloc(&query_device_, query_numel_ * sizeof(float)));
+    checkRuntime(cudaMalloc(&timestep_device_, sizeof(float)));
+
+    printf("[MapDiffusionHead] Loaded: %s\n", param.model.c_str());
+    printf("[MapDiffusionHead] bev numel: %d\n", bev_numel_);
+    printf("[MapDiffusionHead] query numel: %d\n", query_numel_);
+    printf("[MapDiffusionHead] cls_logits numel: %d\n", cls_numel_);
+    printf("[MapDiffusionHead] line_preds numel: %d\n", line_numel_);
+
+    return true;
+  }
+
+  virtual MapDiffusionOutput forward(
+      const float* bev_features,
+      const float* query_coords,
+      const float* timestep,
+      void* stream) override {
+    cudaStream_t _stream = static_cast<cudaStream_t>(stream);
+
+    bool ok = engine_->forward(std::unordered_map<std::string, const void*>{
+        {BindingBEV, bev_features},
+        {BindingQuery, query_coords},
+        {BindingTimestep, timestep},
+        {BindingCls, cls_logits_device_},
+        {BindingLines, line_preds_device_},
+    }, _stream);
+
+    if (!ok) {
+      printf("[MapDiffusionHead] TensorRT forward failed.\n");
+      return {};
+    }
+
+    checkRuntime(cudaMemcpyAsync(
+        cls_logits_host_, cls_logits_device_,
+        cls_numel_ * sizeof(float),
+        cudaMemcpyDeviceToHost,
+        _stream));
+
+    checkRuntime(cudaMemcpyAsync(
+        line_preds_host_, line_preds_device_,
+        line_numel_ * sizeof(float),
+        cudaMemcpyDeviceToHost,
+        _stream));
+
+    checkRuntime(cudaStreamSynchronize(_stream));
+
+    MapDiffusionOutput output;
+    output.cls_logits.assign(cls_logits_host_, cls_logits_host_ + cls_numel_);
+    output.line_preds.assign(line_preds_host_, line_preds_host_ + line_numel_);
+    return output;
+  }
+
+  virtual MapDiffusionOutput forward_from_half_bev(
+      const nvtype::half* bev_features_half,
+      void* stream) override {
+    cudaStream_t _stream = static_cast<cudaStream_t>(stream);
+
+    cuda_linear_launch(half_to_float_kernel, _stream, bev_numel_,
+                       bev_features_half, bev_float_device_);
+
+    cuda_linear_launch(fill_float_kernel, _stream, query_numel_,
+                       query_device_, param_.dummy_query_value);
+
+    cuda_linear_launch(fill_float_kernel, _stream, 1,
+                       timestep_device_, param_.dummy_timestep_value);
+
+    return forward(bev_float_device_, query_device_, timestep_device_, stream);
+  }
+
+  virtual MapDiffusionOutput forward_from_half_bev_with_query(
+      const nvtype::half* bev_features_half,
+      const float* query_coords_host,
+      float timestep,
+      void* stream) override {
+    cudaStream_t _stream = static_cast<cudaStream_t>(stream);
+
+    cuda_linear_launch(half_to_float_kernel, _stream, bev_numel_,
+                       bev_features_half, bev_float_device_);
+
+    checkRuntime(cudaMemcpyAsync(
+        query_device_,
+        query_coords_host,
+        query_numel_ * sizeof(float),
+        cudaMemcpyHostToDevice,
+        _stream));
+
+    checkRuntime(cudaMemcpyAsync(
+        timestep_device_,
+        &timestep,
+        sizeof(float),
+        cudaMemcpyHostToDevice,
+        _stream));
+
+    return forward(bev_float_device_, query_device_, timestep_device_, stream);
+  }
+
+  virtual void print() override {
+    engine_->print("MapDiffusionHead");
+  }
+
+ private:
+  std::shared_ptr<TensorRT::Engine> engine_;
+  MapDiffusionParameter param_;
+
+  float* cls_logits_device_ = nullptr;
+  float* line_preds_device_ = nullptr;
+  float* cls_logits_host_ = nullptr;
+  float* line_preds_host_ = nullptr;
+
+  float* bev_float_device_ = nullptr;
+  float* query_device_ = nullptr;
+  float* timestep_device_ = nullptr;
+
+  int bev_numel_ = 0;
+  int query_numel_ = 0;
+  int cls_numel_ = 0;
+  int line_numel_ = 0;
+};
+
+std::shared_ptr<MapDiffusionHead> create_mapdiffusion_head(const MapDiffusionParameter& param) {
+  std::shared_ptr<MapDiffusionHeadImplement> instance(new MapDiffusionHeadImplement());
+  if (!instance->init(param)) {
+    instance.reset();
+  }
+  return instance;
+}
+
+}  // namespace mapdiffusion
+}  // namespace head
+}  // namespace bevfusion

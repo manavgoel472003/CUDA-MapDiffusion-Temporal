@@ -1,0 +1,31 @@
+#!/bin/bash
+
+export TensorRT_Lib=/home/018198687/Mapping/local/TensorRT-8.5.3.1/lib
+export TensorRT_Inc=/home/018198687/Mapping/local/TensorRT-8.5.3.1/include
+export TensorRT_Bin=/home/018198687/Mapping/local/TensorRT-8.5.3.1/bin
+
+export CUDA11_ROOT=/opt/fs/atipa/local/opt/ohpc/pub/apps/nvidia/nvhpc/24.11/Linux_x86_64/24.11/cuda/11.8
+export CUDA_HOME=$CUDA11_ROOT
+export CUDA_Bin=$CUDA11_ROOT/bin
+export CUDA_Inc=$CUDA11_ROOT/include
+export CUDA_Lib=$CUDA11_ROOT/targets/x86_64-linux/lib
+
+export CUDA11_REDIST=/opt/fs/atipa/local/opt/ohpc/pub/apps/nvidia/nvhpc/24.11/Linux_x86_64/24.11/REDIST/cuda/11.8/targets/x86_64-linux/lib
+
+export CUBLAS_LIB=/opt/fs/atipa/local/opt/ohpc/pub/apps/nvidia/nvhpc/24.11/Linux_x86_64/24.11/math_libs/11.8/targets/x86_64-linux/lib
+export CUBLAS_REDIST=/opt/fs/atipa/local/opt/ohpc/pub/apps/nvidia/nvhpc/24.11/Linux_x86_64/24.11/REDIST/math_libs/11.8/targets/x86_64-linux/lib
+
+export CUDNN_Lib=/opt/fs/atipa/local/opt/ohpc/pub/coe/apps/matlab/R2023b/bin/glnxa64
+
+export LD_LIBRARY_PATH=$TensorRT_Lib:$CUDA_Lib:$CUDA11_REDIST:$CUBLAS_LIB:$CUBLAS_REDIST:$CUDNN_Lib:$LD_LIBRARY_PATH
+
+export SPCONV_CUDA_VERSION=11.8
+
+export DEBUG_MODEL=resnet50int8
+export DEBUG_PRECISION=int8
+export DEBUG_DATA=example-data
+export USE_Python=OFF
+
+if [ ! -f "$TensorRT_Bin/trtexec" ]; then
+    echo "Can not find $TensorRT_Bin/trtexec, there may be a mistake in the directory you configured."
+fi

@@ -1,0 +1,13 @@
+Do not use these old failed experiments:
+
+plugin/models/mapers/MapDiffusion_bevfusion.py
+plugin/models/mapers/MapDiffusion_bevfusion_v1.py
+plugin/models/mapers/MapDiffusion_bevfusion_v2.py
+plugin/configs/mapdiff_bevfusion_config.py
+plugin/configs/mapdiff_bevfusion_config_proper.py
+plugin/configs/nusc_newsplit_480_60x30_24e_mapdiffusion_bevfusion_v299_dd3d.py
+
+Fresh port uses only:
+plugin/models/mapers/MapDiffusion.py
+plugin/models/heads/MapDetectorHeadDiffuse.py
+plugin/models/transformer_utils/MapTransformer.py

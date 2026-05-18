@@ -1,0 +1,337 @@
+import argparse
+import os
+import sys
+import importlib
+from pathlib import Path
+
+import mmcv
+import numpy as np
+import torch
+from mmcv import Config
+from mmcv.parallel import collate, scatter
+from mmcv.runner import load_checkpoint
+from mmdet3d.datasets import build_dataset
+from mmdet3d.models import build_model
+
+import tensorrt as trt
+
+from run_e2e_trt_mapdiffusion_5step_vis import (
+    ENGINE_A, ENGINE_B, ENGINE_C, ENGINE_D,
+    load_plugins, load_engine, TrtModule
+)
+
+
+def import_plugin_from_cfg(cfg, repo_root):
+    sys.path.insert(0, str(repo_root))
+    if hasattr(cfg, "plugin") and cfg.plugin:
+        plugin_dirs = cfg.plugin_dir
+        if not isinstance(plugin_dirs, list):
+            plugin_dirs = [plugin_dirs]
+        for plugin_dir in plugin_dirs:
+            module_path = os.path.dirname(plugin_dir).replace("/", ".")
+            importlib.import_module(module_path)
+
+
+def unwrap_one(x):
+    while isinstance(x, (list, tuple)) and len(x) == 1:
+        x = x[0]
+    return x
+
+
+def get_meta0(img_metas):
+    if isinstance(img_metas, dict):
+        return img_metas
+    x = unwrap_one(img_metas)
+    if isinstance(x, list):
+        return x[0]
+    return x
+
+
+def sigmoid(x):
+    return 1.0 / (1.0 + np.exp(-x))
+
+
+def compute_ddpm_coef(total_steps, schedule="cosine"):
+    def betas_for_alpha_bar(num_diffusion_timesteps, alpha_bar, max_beta=0.999):
+        betas = []
+        for i in range(num_diffusion_timesteps):
+            t1 = i / num_diffusion_timesteps
+            t2 = (i + 1) / num_diffusion_timesteps
+            betas.append(min(1 - alpha_bar(t2) / alpha_bar(t1), max_beta))
+        return np.array(betas)
+
+    if schedule == "linear":
+        scale = 1000 / total_steps
+        betas = np.linspace(scale * 1e-4, scale * 2e-2, total_steps)
+    elif schedule == "cosine":
+        betas = betas_for_alpha_bar(
+            total_steps,
+            lambda t: np.cos((t + 0.008) / 1.008 * np.pi / 2) ** 2,
+        )
+    else:
+        raise NotImplementedError(schedule)
+
+    alphas = 1.0 - betas
+    alphas_cumprod = np.cumprod(alphas, axis=0)
+
+    return {
+        "alphas_cumprod": alphas_cumprod,
+        "pred_coef1": np.sqrt(1.0 / alphas_cumprod),
+        "pred_coef2": np.sqrt(1.0 / alphas_cumprod - 1),
+    }
+
+
+def predict_noise_from_start(coef, x_t, t, x0):
+    return (coef["pred_coef1"][t - 1] * x_t - x0) / coef["pred_coef2"][t - 1]
+
+
+def to_jsonable(x):
+    if isinstance(x, torch.Tensor):
+        return x.detach().cpu().numpy().tolist()
+    if isinstance(x, np.ndarray):
+        return x.tolist()
+    if isinstance(x, (np.float32, np.float64, np.int32, np.int64, np.bool_)):
+        return x.item()
+    if isinstance(x, dict):
+        return {k: to_jsonable(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [to_jsonable(v) for v in x]
+    return x
+
+
+def normalize_entry_for_submission(entry):
+    e = {}
+    for k, v in entry.items():
+        if k == "token":
+            continue
+        if k == "prop_mask":
+            e["prop"] = to_jsonable(v)
+        else:
+            e[k] = to_jsonable(v)
+    if "prop" not in e:
+        n = len(e.get("scores", []))
+        e["prop"] = [False] * n
+    return e
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--mapdiff-root", default="/home/018198687/Mapping/mapdiffusion")
+    ap.add_argument("--config", default="/home/018198687/Mapping/mapdiffusion/plugin/configs/new_mapdiff.py")
+    ap.add_argument("--checkpoint", default="/home/018198687/Mapping/mapdiffusion/work_dirs/new_mapdiff/iter_83520.pth")
+    ap.add_argument("--out-dir", required=True)
+    ap.add_argument("--start", type=int, default=0)
+    ap.add_argument("--limit", type=int, default=-1)
+    ap.add_argument("--seed", type=int, default=123)
+    ap.add_argument("--print-every", type=int, default=25)
+    args = ap.parse_args()
+
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    mapdiff_root = Path(args.mapdiff_root)
+    cfg = Config.fromfile(args.config)
+    import_plugin_from_cfg(cfg, mapdiff_root)
+
+    # Dataset for inference pipeline.
+    data_cfg = cfg.data.test if hasattr(cfg.data, "test") else cfg.data.val
+    data_cfg = data_cfg.copy()
+    data_cfg.test_mode = True
+    dataset = build_dataset(data_cfg)
+
+    n_total = len(dataset)
+    end = n_total if args.limit < 0 else min(n_total, args.start + args.limit)
+    indices = list(range(args.start, end))
+
+    print("=" * 100)
+    print("TRT MapDiffusion val submission")
+    print("dataset size:", n_total)
+    print("start/end/count:", args.start, end, len(indices))
+    print("config:", args.config)
+    print("checkpoint:", args.checkpoint)
+    print("ENGINE_A:", ENGINE_A)
+    print("ENGINE_B:", ENGINE_B)
+    print("ENGINE_D:", ENGINE_D)
+    print("ENGINE_C:", ENGINE_C)
+    print("=" * 100)
+
+    # Build model only for head.post_process.
+    cfg.model.pretrained = None
+    model = build_model(cfg.model, test_cfg=cfg.get("test_cfg"))
+    load_checkpoint(model, args.checkpoint, map_location="cpu")
+    model.cuda().eval()
+
+    total_steps = int(getattr(cfg, "total_steps", 1000))
+    scheduler = getattr(cfg, "scheduler", "cosine")
+    eta = float(cfg.evaluation.get("eval_diffusion_eta", 0.5))
+    sampling_timesteps = int(cfg.evaluation.get("eval_diffusion_sampling_timesteps", 5))
+    query_threshold = float(cfg.evaluation.get("eval_diffusion_query_threshold", 0.5))
+
+    coef = compute_ddpm_coef(total_steps, scheduler)
+    times = np.linspace(0, total_steps, sampling_timesteps + 1).astype(np.int32)
+    times = list(reversed(times.tolist()))
+    time_pairs = list(zip(times[:-1], times[1:]))
+
+    print("total_steps:", total_steps)
+    print("scheduler:", scheduler)
+    print("eta:", eta)
+    print("sampling_timesteps:", sampling_timesteps)
+    print("query_threshold:", query_threshold)
+    print("time_pairs:", time_pairs)
+
+    logger = trt.Logger(trt.Logger.WARNING)
+    load_plugins()
+    engine_a = load_engine(ENGINE_A, logger)
+    engine_b = load_engine(ENGINE_B, logger)
+    engine_d = load_engine(ENGINE_D, logger)
+    engine_c = load_engine(ENGINE_C, logger)
+
+    A = TrtModule("EngineA_BackboneFPN", engine_a)
+    B = TrtModule("EngineB_BEVFormerEncoder", engine_b)
+    D = TrtModule("EngineD_StreamFusionNeck", engine_d)
+    C = TrtModule("EngineC_MapDiffusionHead", engine_c)
+
+    # Allocate fixed outputs once.
+    dummy_img = np.zeros((1, 6, 3, 480, 800), dtype=np.float32)
+    dummy_ego2img = np.zeros((1, 6, 4, 4), dtype=np.float32)
+    dummy_q = np.zeros((1, 100, 20, 2), dtype=np.float32)
+    dummy_t = np.zeros((1,), dtype=np.float32)
+
+    A.bind_host_input("img", dummy_img)
+    A.allocate_outputs()
+
+    B.bind_device_input("feat0", A.output_ptr("feat0"), A.output_shape("feat0"))
+    B.bind_device_input("feat1", A.output_ptr("feat1"), A.output_shape("feat1"))
+    B.bind_device_input("feat2", A.output_ptr("feat2"), A.output_shape("feat2"))
+    B.bind_host_input("ego2img", dummy_ego2img)
+    B.allocate_outputs()
+
+    D.bind_device_input("prev_bev", B.output_ptr("bev_features"), B.output_shape("bev_features"))
+    D.bind_device_input("curr_bev", B.output_ptr("bev_features"), B.output_shape("bev_features"))
+    D.allocate_outputs()
+
+    C.bind_device_input("bev_features", D.output_ptr("fused_bev"), D.output_shape("fused_bev"))
+    C.bind_host_input("query_coords", dummy_q)
+    C.bind_host_input("timestep", dummy_t)
+    C.allocate_outputs()
+
+    rng = np.random.default_rng(args.seed)
+
+    results_list = []
+    submission_results = {}
+
+    with torch.no_grad():
+        for local_i, idx in enumerate(indices):
+            data = collate([dataset[idx]], samples_per_gpu=1)
+            data = scatter(data, [0])[0]
+
+            img_t = unwrap_one(data["img"])
+            meta0 = get_meta0(data["img_metas"])
+            token = meta0["token"]
+
+            img = img_t.detach().cpu().numpy().astype(np.float32)
+            ego2img = np.asarray(meta0["ego2img"], dtype=np.float32)
+            if ego2img.ndim == 3:
+                ego2img = ego2img[None, ...]
+
+            A.bind_host_input("img", np.ascontiguousarray(img))
+            B.bind_host_input("ego2img", np.ascontiguousarray(ego2img))
+
+            A.execute()
+            B.execute()
+            D.execute()
+
+            query_coords = rng.normal(0.5, 0.25, size=(1, 100, 20, 2)).astype(np.float32)
+            query_coords = np.clip(query_coords, 0.0, 1.0)
+
+            poly_class = None
+            prop_mask = np.zeros((100,), dtype=np.bool_)
+
+            for step, (time_step, time_next) in enumerate(time_pairs):
+                timestep = np.array([float(time_step)], dtype=np.float32)
+
+                C.bind_host_input("query_coords", np.ascontiguousarray(query_coords))
+                C.bind_host_input("timestep", timestep)
+                C.execute()
+                out = C.copy_outputs_to_host()
+
+                x_start = out["line_preds"].reshape(1, 100, 20, 2).astype(np.float32)
+                x_start_class = out["cls_logits"].reshape(1, 100, 3).astype(np.float32)
+                poly_class = x_start_class
+
+                score_per_image = sigmoid(x_start_class[0])
+                value = score_per_image.max(axis=-1)
+                keep_idx = value > query_threshold
+                prop_mask = np.zeros((100,), dtype=np.bool_)
+
+                if time_next == 0:
+                    query_coords = x_start
+                    break
+
+                pred_noise = predict_noise_from_start(coef, query_coords, time_step, x_start)
+
+                pred_noise = pred_noise[:, keep_idx, :, :]
+                x_start_keep = x_start[:, keep_idx, :, :]
+
+                alpha = coef["alphas_cumprod"][time_step - 1]
+                alpha_next = coef["alphas_cumprod"][time_next - 1]
+                sigma = eta * np.sqrt((1 - alpha / alpha_next) * (1 - alpha_next) / (1 - alpha))
+                c = np.sqrt(1 - alpha_next - sigma ** 2)
+
+                noise = rng.normal(0.0, 0.25, size=x_start_keep.shape).astype(np.float32)
+                noise = np.clip(noise, 0.0, 1.0)
+
+                query_coords = x_start_keep * np.sqrt(alpha_next) + c * pred_noise + sigma * noise
+                query_coords = np.clip(query_coords, 0.0, 1.0).astype(np.float32)
+
+                num_remain = int(keep_idx.sum())
+                refill = 100 - num_remain
+                noise_new = rng.normal(0.5, 0.25, size=(1, refill, 20, 2)).astype(np.float32)
+                noise_new = np.clip(noise_new, 0.0, 1.0)
+                query_coords = np.ascontiguousarray(
+                    np.concatenate([query_coords, noise_new], axis=1).astype(np.float32)
+                )
+
+            lines_t = torch.from_numpy(query_coords.reshape(1, 100, 40)).cuda()
+            scores_t = torch.from_numpy(poly_class.reshape(1, 100, 3)).cuda()
+            prop_t = [torch.from_numpy(prop_mask).cuda()]
+
+            preds_dict = {
+                "lines": lines_t,
+                "scores": scores_t,
+                "prop_mask": prop_t,
+            }
+
+            entry = model.head.post_process(preds_dict, [token])[0]
+            results_list.append(entry)
+            submission_results[token] = normalize_entry_for_submission(entry)
+
+            if (local_i + 1) % args.print_every == 0 or local_i == 0 or (local_i + 1) == len(indices):
+                scores = np.asarray(submission_results[token]["scores"], dtype=np.float32)
+                print(
+                    f"[{local_i+1}/{len(indices)}] idx={idx} token={token} "
+                    f"score min/max/mean={scores.min():.4f}/{scores.max():.4f}/{scores.mean():.4f} "
+                    f">0.5={(scores > 0.5).sum()}"
+                )
+
+    results_pkl = out_dir / "trt_results.pkl"
+    submission_json = out_dir / "submission_vector.json"
+
+    mmcv.dump(results_list, str(results_pkl))
+
+    meta = getattr(cfg, "meta", dict(output_format="vector"))
+    submission = {
+        "meta": to_jsonable(meta),
+        "results": submission_results,
+    }
+    mmcv.dump(submission, str(submission_json))
+
+    print("=" * 100)
+    print("saved results pkl:", results_pkl)
+    print("saved submission:", submission_json)
+    print("num results:", len(results_list))
+    print("=" * 100)
+
+
+if __name__ == "__main__":
+    main()

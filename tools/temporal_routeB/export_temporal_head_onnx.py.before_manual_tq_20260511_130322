@@ -1,0 +1,157 @@
+import os
+import sys
+import random
+import importlib
+from pathlib import Path
+
+import numpy as np
+import torch
+import torch.nn as nn
+from mmcv import Config
+from mmdet3d.models import build_model
+from mmcv.runner import load_checkpoint
+
+MAPDIFF_ROOT = Path("/home/018198687/Mapping/mapdiffusion")
+CBF_ROOT = Path("/home/018198687/Mapping/Lidar_AI_Solution/CUDA-BEVFusion")
+
+CONFIG = os.environ.get(
+    "TEMPORAL_CONFIG",
+    str(CBF_ROOT / "model/mapdiffusion_temporal_routeB/temporal_config.py"),
+)
+CKPT = os.environ.get(
+    "TEMPORAL_CKPT",
+    "/home/018198687/Mapping/mapdiffusion/work_dirs/mapdiffusion_temporal_scratch_32e_start1_stronger_loss/iter_87000.pth",
+)
+TRACE_DIR = Path(os.environ.get(
+    "TRACE_DIR",
+    str(CBF_ROOT / "model/mapdiffusion_temporal_routeB/pytorch_trace_sample0"),
+))
+ONNX_OUT = Path(os.environ.get(
+    "ONNX_OUT",
+    str(CBF_ROOT / "model/mapdiffusion_temporal_routeB/mapdiffusion.temporal_head.opset11.fp32.onnx"),
+))
+SEED = int(os.environ.get("SEED", "123"))
+
+sys.path.insert(0, str(MAPDIFF_ROOT))
+
+torch.manual_seed(SEED)
+np.random.seed(SEED)
+random.seed(SEED)
+torch.cuda.manual_seed_all(SEED)
+
+
+def import_plugins(cfg):
+    if getattr(cfg, "plugin", False):
+        plugin_dir = cfg.plugin_dir
+        if isinstance(plugin_dir, str):
+            module_path = os.path.dirname(plugin_dir).replace("/", ".")
+            print("[plugin] importing:", module_path)
+            importlib.import_module(module_path)
+
+    if hasattr(cfg, "custom_imports"):
+        for imp in cfg.custom_imports.get("imports", []):
+            print("[custom_import] importing:", imp)
+            importlib.import_module(imp)
+
+
+class TemporalHeadExportWrapper(nn.Module):
+    def __init__(self, head):
+        super().__init__()
+        self.head = head
+
+    def forward(self, bev_features, query_coords, timestep, prev_query_feat, prev_query_valid):
+        # prev_query_valid is float32 [B, 100], 0 or 1.
+        # If all invalid, bypass temporal fusion by passing None.
+        # This branch is fixed during export, so for the ONNX graph we export the active temporal path.
+        # For first-frame-only export, export a second wrapper later if needed.
+        valid_bool = prev_query_valid > 0.5
+
+        outputs = self.head.forward_test(
+            query_coords=query_coords,
+            timestep=timestep,
+            bev_features=bev_features,
+            img_metas=[{}],
+            prev_query_feat=prev_query_feat,
+            prev_query_valid=valid_bool,
+        )
+
+        # Last decoder layer is the final prediction.
+        last = outputs[-1]
+        line_preds = last["lines"][0].unsqueeze(0)
+        cls_logits = last["scores"][0].unsqueeze(0)
+        query_feat = last["query_feat"]
+
+        return line_preds, cls_logits, query_feat
+
+
+def main():
+    cfg = Config.fromfile(CONFIG)
+    import_plugins(cfg)
+
+    print("=" * 100)
+    print("CONFIG:", CONFIG)
+    print("CKPT:", CKPT)
+    print("TRACE_DIR:", TRACE_DIR)
+    print("ONNX_OUT:", ONNX_OUT)
+
+    model = build_model(cfg.model, test_cfg=cfg.get("test_cfg", None))
+    load_checkpoint(model, CKPT, map_location="cpu")
+    model.cuda().eval()
+
+    print("model type:", type(model))
+    print("head type:", type(model.head))
+    print("has temporal_query_fusion:", hasattr(model.head, "temporal_query_fusion"))
+
+    wrapper = TemporalHeadExportWrapper(model.head).cuda().eval()
+
+    bev_features = torch.from_numpy(np.load(TRACE_DIR / "bev_features.npy").astype(np.float32)).cuda()
+    query_coords = torch.from_numpy(np.load(TRACE_DIR / "step_00_query_coords.npy").astype(np.float32)).cuda()
+    timestep = torch.tensor([1000.0], dtype=torch.float32, device="cuda")
+
+    # Export the ACTIVE temporal path.
+    # Use dummy valid previous features so TemporalQueryFusion is in the graph.
+    prev_query_feat = torch.zeros((1, 100, 512), dtype=torch.float32, device="cuda")
+    prev_query_valid = torch.ones((1, 100), dtype=torch.float32, device="cuda")
+
+    with torch.no_grad():
+        line_preds, cls_logits, query_feat = wrapper(
+            bev_features,
+            query_coords,
+            timestep,
+            prev_query_feat,
+            prev_query_valid,
+        )
+
+    print("line_preds:", tuple(line_preds.shape), float(line_preds.min()), float(line_preds.max()), float(line_preds.mean()))
+    print("cls_logits:", tuple(cls_logits.shape), float(cls_logits.min()), float(cls_logits.max()), float(cls_logits.mean()))
+    print("query_feat:", tuple(query_feat.shape), float(query_feat.min()), float(query_feat.max()), float(query_feat.mean()))
+
+    ONNX_OUT.parent.mkdir(parents=True, exist_ok=True)
+
+    torch.onnx.export(
+        wrapper,
+        (bev_features, query_coords, timestep, prev_query_feat, prev_query_valid),
+        str(ONNX_OUT),
+        input_names=[
+            "bev_features",
+            "query_coords",
+            "timestep",
+            "prev_query_feat",
+            "prev_query_valid",
+        ],
+        output_names=[
+            "line_preds",
+            "cls_logits",
+            "query_feat",
+        ],
+        opset_version=11,
+        do_constant_folding=False,
+        dynamic_axes=None,
+        verbose=False,
+    )
+
+    print("saved ONNX:", ONNX_OUT)
+
+
+if __name__ == "__main__":
+    main()

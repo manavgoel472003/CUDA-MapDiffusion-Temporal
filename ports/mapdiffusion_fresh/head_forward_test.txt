@@ -1,0 +1,171 @@
+   220	
+   221	        num_layers = self.transformer.decoder.num_layers
+   222	        if self.different_heads:
+   223	            cls_branches = nn.ModuleList(
+   224	                [copy.deepcopy(cls_branch) for _ in range(num_layers)])
+   225	            reg_branches = nn.ModuleList(
+   226	                [copy.deepcopy(reg_branch) for _ in range(num_layers)])
+   227	        else:
+   228	            cls_branches = nn.ModuleList(
+   229	                [cls_branch for _ in range(num_layers)])
+   230	            reg_branches = nn.ModuleList(
+   231	                [reg_branch for _ in range(num_layers)])
+   232	
+   233	        self.reg_branches = reg_branches
+   234	        self.cls_branches = cls_branches
+   235	
+   236	    def _prepare_context(self, bev_features):
+   237	        """Prepare class label and vertex context."""
+   238	        device = bev_features.device
+   239	
+   240	        # Add 2D coordinate grid embedding
+   241	        B, C, H, W = bev_features.shape
+   242	        bev_mask = bev_features.new_zeros(B, H, W)
+   243	        bev_pos_embeddings = self.bev_pos_embed(bev_mask) # (bs, embed_dims, H, W)
+   244	        bev_features = self.input_proj(bev_features) + bev_pos_embeddings # (bs, embed_dims, H, W)
+   245	    
+   246	        assert list(bev_features.shape) == [B, self.embed_dims, H, W]
+   247	        return bev_features
+   248	
+   249	    def forward_train(self,coef, total_steps, inputs, bev_features, img_metas, gts):
+   250	        '''
+   251	        Args:
+   252	            bev_feature (List[Tensor]): shape [B, C, H, W]
+   253	                feature in bev view
+   254	        Outs:
+   255	            preds_dict (list[dict]):
+   256	                lines (Tensor): Classification score of all
+   257	                    decoder layers, has shape
+   258	                    [bs, num_query, 2*num_points]
+   259	                scores (Tensor):
+   260	                    [bs, num_query,]
+   261	        '''
+   262	
+   263	        bev_features = self._prepare_context(bev_features)
+   264	
+   265	        bs, C, H, W = bev_features.shape
+   266	        img_masks = bev_features.new_zeros((bs, H, W))
+   267	        pos_embed = None
+   268	
+   269	        device = torch.device('cuda')
+   270	        polylines, poly_class, poly_scores = gt_padding(inputs)
+   271	        polylines = torch.tensor(polylines, dtype = torch.float32).to(device)  # [B, num_q, num_points, num_coords]
+   272	        t = np.random.randint(1, total_steps + 1)
+   273	        # Generate random vectorized polyline coordinates between 0 and 1
+   274	        noise = torch.normal(mean=0.5, std=0.25, size=polylines.shape).to(device)
+   275	        noise = noise.clip(0, 1)
+   276	        query_coords = forward_steps(polylines,t,noise,coef)  # [B, num_q, num_points, num_coords]
+   277	        vert_coords = rearrange(query_coords, 'b n1 n2 c -> b n1 (n2 c)') # [B, num_q, 40]
+   278	        vert_encodings = self.geometry_branch(vert_coords)  # encode coordinates to [B, num_q, 512]
+   279	        timestep = timesteps_to_tensor(t,bs)
+   280	        t_emb = self.time_embed(timestep_embedding(timestep.to(device), self.input_dim)).to(device)#[b,512]
+   281	        repeat_t_emb = repeat(t_emb, 'b n2 -> b n1 n2', n1=vert_encodings.shape[1])#[b,num_q,512]
+   282	        reference_points = vert_coords.clip(0, 1)
+   283	
+   284	        rf_encodings = torch.cat([vert_encodings, repeat_t_emb], dim=-1) #[b,num_q,1024]
+   285	
+   286	        reference_points_offset = self.reference_points(rf_encodings).sigmoid() #[b,num_q,1024]
+   287	        reference_points_offset = reference_points_offset * 2 - 1
+   288	        reference_points = (reference_points + reference_points_offset).clip(0, 1)
+   289	        init_reference_points = reference_points.view(bs, self.num_queries, self.num_points, 2)
+   290	        
+   291	        assert list(init_reference_points.shape) == [bs, self.num_queries, self.num_points, 2]
+   292	        assert list(vert_encodings.shape) == [bs, self.num_queries, self.embed_dims]
+   293	        # outs_dec: (num_layers, num_qs, bs, embed_dims)
+   294	        inter_queries, init_reference, inter_references = self.transformer(
+   295	            t_emb=t_emb,
+   296	            mlvl_feats=[bev_features,],
+   297	            mlvl_masks=[img_masks.type(torch.bool)],
+   298	            query_embed=vert_encodings,
+   299	            mlvl_pos_embeds=[pos_embed], # not used
+   300	            memory_query=None,
+   301	            init_reference_points=init_reference_points,
+   302	            reg_branches=self.reg_branches,
+   303	            cls_branches=self.cls_branches,
+   304	            predict_refine=self.predict_refine,
+   305	            query_key_padding_mask=vert_encodings.new_zeros((bs, self.num_queries), dtype=torch.bool), # mask used in self-attn,
+   306	        )
+   307	        outputs = []
+   308	        for i, (queries) in enumerate(inter_queries):
+   309	            reg_points = inter_references[i] # (bs, num_q, num_points, 2)
+   310	            bs = reg_points.shape[0]
+   311	            reg_points = reg_points.view(bs, -1, 2*self.num_points) # (bs, num_q, 2*num_points)
+   312	            scores = self.cls_branches[i](queries) # (bs, num_q, num_classes)
+   313	
+   314	            reg_points_list = []
+   315	            scores_list = []
+   316	            for i in range(len(scores)):
+   317	                # padding queries should not be output
+   318	                reg_points_list.append(reg_points[i])
+   319	                scores_list.append(scores[i])
+   320	
+   321	            pred_dict = {
+   322	                'lines': reg_points_list,
+   323	                'scores': scores_list
+   324	            }
+   325	            outputs.append(pred_dict)
+   326	        
+   327	        loss_dict, det_match_idxs, det_match_gt_idxs, gt_lines_list = self.loss(gts=gts, preds=outputs)
+   328	
+   329	        return outputs, loss_dict, det_match_idxs, det_match_gt_idxs
+   330	    
+   331	    def forward_test(self, query_coords, timestep, bev_features, img_metas):
+   332	        '''
+   333	        Args:
+   334	            bev_feature (List[Tensor]): shape [B, C, H, W]
+   335	                feature in bev view
+   336	        Outs:
+   337	            preds_dict (list[dict]):
+   338	                lines (Tensor): Classification score of all
+   339	                    decoder layers, has shape
+   340	                    [bs, num_query, 2*num_points]
+   341	                scores (Tensor):
+   342	                    [bs, num_query,]
+   343	        '''
+   344	        bev_features = self._prepare_context(bev_features)
+   345	
+   346	        bs, C, H, W = bev_features.shape
+   347	        img_masks = bev_features.new_zeros((bs, H, W))
+   348	        pos_embed = None
+   349	
+   350	        device = torch.device('cuda')
+   351	        vert_coords = rearrange(query_coords, 'b n1 n2 c -> b n1 (n2 c)') # [B, num_q, 40]
+   352	        vert_encodings = self.geometry_branch(vert_coords)  # [B, num_q, 512]
+   353	        timestep = timesteps_to_tensor(timestep,bs)
+   354	        t_emb = self.time_embed(timestep_embedding(timestep.to(device), self.input_dim)).to(device) # [b, 512]
+   355	        repeat_t_emb = repeat(t_emb, 'b n2 -> b n1 n2', n1=vert_encodings.shape[1]) # [b, num_q, 512]
+   356	        reference_points = vert_coords.clip(0, 1)
+   357	        rf_encodings = torch.cat([vert_encodings, repeat_t_emb], dim=-1) #[b, num_q, 1024]
+   358	
+   359	        reference_points_offset = self.reference_points(rf_encodings).sigmoid() # [b, num_q, 1024]
+   360	        reference_points_offset = reference_points_offset * 2 - 1
+   361	        reference_points = (reference_points + reference_points_offset).clip(0, 1)
+   362	        init_reference_points = reference_points.view(bs, self.num_queries, self.num_points, 2)
+   363	       
+   364	        assert list(init_reference_points.shape) == [bs, self.num_queries, self.num_points, 2]
+   365	        assert list(vert_encodings.shape) == [bs, self.num_queries, self.embed_dims]
+   366	
+   367	        # outs_dec: (num_layers, num_qs, bs, embed_dims)
+   368	        inter_queries, init_reference, inter_references = self.transformer(
+   369	            t_emb = t_emb,
+   370	            mlvl_feats=[bev_features,],
+   371	            mlvl_masks=[img_masks.type(torch.bool)],
+   372	            query_embed=vert_encodings,
+   373	            mlvl_pos_embeds=[pos_embed], # not used
+   374	            memory_query=None,
+   375	            init_reference_points=init_reference_points,
+   376	            reg_branches=self.reg_branches,
+   377	            cls_branches=self.cls_branches,
+   378	            predict_refine=self.predict_refine,
+   379	            query_key_padding_mask=vert_encodings.new_zeros((bs, self.num_queries), dtype=torch.bool), # mask used in self-attn
+   380	        )
+   381	
+   382	        outputs = []
+   383	        for i, (queries) in enumerate(inter_queries):
+   384	            reg_points = inter_references[i] # (bs, num_q, num_points, 2)
+   385	            bs = reg_points.shape[0]
+   386	            reg_points = reg_points.view(bs, -1, 2*self.num_points) # (bs, num_q, 2*num_points)
+   387	            scores = self.cls_branches[i](queries) # (bs, num_q, num_classes)
+   388	
+   389	            reg_points_list = []
+   390	            scores_list = []

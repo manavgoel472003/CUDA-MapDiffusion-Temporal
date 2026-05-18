@@ -1,0 +1,412 @@
+#include <NvInfer.h>
+#include <NvInferPlugin.h>
+#include <cuda_runtime.h>
+
+#include <cassert>
+#include <cstring>
+#include <iostream>
+#include <string>
+#include <vector>
+
+using namespace nvinfer1;
+
+namespace {
+
+static const char* PLUGIN_NAME = "MultiScaleDeformableAttnPlugin";
+static const char* PLUGIN_VERSION = "1";
+
+#define CUDA_CHECK(call) do {                                      \
+    cudaError_t err = call;                                        \
+    if (err != cudaSuccess) {                                      \
+        printf("[MSDA Plugin] CUDA error %s:%d: %s\n",             \
+               __FILE__, __LINE__, cudaGetErrorString(err));       \
+    }                                                             \
+} while (0)
+
+__device__ __forceinline__ float bilinear_sample_single_level(
+    const float* value,
+    int b,
+    int h,
+    int c,
+    int num_heads,
+    int head_dim,
+    int H,
+    int W,
+    float normalized_x,
+    float normalized_y
+) {
+    // MMCV deformable attention convention:
+    // normalized coordinates in [0, 1], converted to image coords with -0.5.
+    float x = normalized_x * W - 0.5f;
+    float y = normalized_y * H - 0.5f;
+
+    if (x <= -1.0f || y <= -1.0f || x >= W || y >= H) {
+        return 0.0f;
+    }
+
+    int x0 = floorf(x);
+    int y0 = floorf(y);
+    int x1 = x0 + 1;
+    int y1 = y0 + 1;
+
+    float wx1 = x - x0;
+    float wx0 = 1.0f - wx1;
+    float wy1 = y - y0;
+    float wy0 = 1.0f - wy1;
+
+    auto get_value = [&](int yy, int xx) -> float {
+        if (yy < 0 || yy >= H || xx < 0 || xx >= W) {
+            return 0.0f;
+        }
+        int spatial_idx = yy * W + xx;
+        // value layout: [B, H*W, num_heads, head_dim]
+        int idx = (((b * (H * W) + spatial_idx) * num_heads + h) * head_dim + c);
+        return value[idx];
+    };
+
+    float v00 = get_value(y0, x0);
+    float v01 = get_value(y0, x1);
+    float v10 = get_value(y1, x0);
+    float v11 = get_value(y1, x1);
+
+    return v00 * wx0 * wy0 +
+           v01 * wx1 * wy0 +
+           v10 * wx0 * wy1 +
+           v11 * wx1 * wy1;
+}
+
+__global__ void msda_routea_forward_kernel(
+    const float* value,
+    const float* sampling_locations,
+    const float* attention_weights,
+    float* output,
+    int B,
+    int Q,
+    int num_heads,
+    int num_points,
+    int head_dim,
+    int H,
+    int W
+) {
+    int total = B * Q * num_heads * head_dim;
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total) return;
+
+    int c = idx % head_dim;
+    int tmp = idx / head_dim;
+    int h = tmp % num_heads;
+    tmp /= num_heads;
+    int q = tmp % Q;
+    int b = tmp / Q;
+
+    float sum = 0.0f;
+
+    // Route A: num_levels = 1
+    int level = 0;
+
+    for (int p = 0; p < num_points; ++p) {
+        // sampling_locations layout:
+        // [B, Q, num_heads, num_levels, num_points, 2]
+        int loc_base = (((((b * Q + q) * num_heads + h) * 1 + level) * num_points + p) * 2);
+        float x = sampling_locations[loc_base + 0];
+        float y = sampling_locations[loc_base + 1];
+
+        // attention_weights layout:
+        // [B, Q, num_heads, num_levels, num_points]
+        int widx = ((((b * Q + q) * num_heads + h) * 1 + level) * num_points + p);
+        float attn = attention_weights[widx];
+
+        float sampled = bilinear_sample_single_level(
+            value, b, h, c, num_heads, head_dim, H, W, x, y
+        );
+
+        sum += attn * sampled;
+    }
+
+    // output layout: [B, Q, num_heads * head_dim]
+    output[((b * Q + q) * num_heads + h) * head_dim + c] = sum;
+}
+
+class MultiScaleDeformableAttnPlugin final : public IPluginV2DynamicExt {
+public:
+    MultiScaleDeformableAttnPlugin() {}
+
+    MultiScaleDeformableAttnPlugin(const void* data, size_t length) {
+        // No serialized fields for Route A plugin yet.
+        (void)data;
+        (void)length;
+    }
+
+    const char* getPluginType() const noexcept override {
+        return PLUGIN_NAME;
+    }
+
+    const char* getPluginVersion() const noexcept override {
+        return PLUGIN_VERSION;
+    }
+
+    int getNbOutputs() const noexcept override {
+        return 1;
+    }
+
+    DimsExprs getOutputDimensions(
+        int outputIndex,
+        const DimsExprs* inputs,
+        int nbInputs,
+        IExprBuilder& exprBuilder
+    ) noexcept override {
+        assert(outputIndex == 0);
+        assert(nbInputs == 5);
+
+        // value:              [B, HW, num_heads, head_dim]
+        // sampling_locations: [B, Q, num_heads, 1, num_points, 2]
+        // output:             [B, Q, num_heads * head_dim]
+        DimsExprs out;
+        out.nbDims = 3;
+        out.d[0] = inputs[0].d[0];  // B
+        out.d[1] = inputs[3].d[1];  // Q
+
+        auto prod = exprBuilder.operation(
+            DimensionOperation::kPROD,
+            *inputs[0].d[2],
+            *inputs[0].d[3]
+        );
+        out.d[2] = prod;            // num_heads * head_dim
+        return out;
+    }
+
+    bool supportsFormatCombination(
+        int pos,
+        const PluginTensorDesc* inOut,
+        int nbInputs,
+        int nbOutputs
+    ) noexcept override {
+        assert(nbInputs == 5);
+        assert(nbOutputs == 1);
+
+        const TensorFormat fmt = TensorFormat::kLINEAR;
+
+        // First Route A plugin is FP32 only.
+        if (pos == 0) {
+            return inOut[pos].type == DataType::kFLOAT && inOut[pos].format == fmt;
+        }
+
+        // spatial_shapes and level_start_index are usually INT32 after TensorRT casts ONNX INT64 down.
+        if (pos == 1 || pos == 2) {
+            return inOut[pos].type == DataType::kINT32 && inOut[pos].format == fmt;
+        }
+
+        // sampling_locations, attention_weights, output
+        if (pos == 3 || pos == 4 || pos == 5) {
+            return inOut[pos].type == DataType::kFLOAT && inOut[pos].format == fmt;
+        }
+
+        return false;
+    }
+
+    void configurePlugin(
+        const DynamicPluginTensorDesc* in,
+        int nbInputs,
+        const DynamicPluginTensorDesc* out,
+        int nbOutputs
+    ) noexcept override {
+        (void)in;
+        (void)out;
+        assert(nbInputs == 5);
+        assert(nbOutputs == 1);
+    }
+
+    size_t getWorkspaceSize(
+        const PluginTensorDesc* inputs,
+        int nbInputs,
+        const PluginTensorDesc* outputs,
+        int nbOutputs
+    ) const noexcept override {
+        (void)inputs;
+        (void)nbInputs;
+        (void)outputs;
+        (void)nbOutputs;
+        return 0;
+    }
+
+    int enqueue(
+        const PluginTensorDesc* inputDesc,
+        const PluginTensorDesc* outputDesc,
+        const void* const* inputs,
+        void* const* outputs,
+        void* workspace,
+        cudaStream_t stream
+    ) noexcept override {
+        (void)outputDesc;
+        (void)workspace;
+
+        // Route A expected:
+        // value:              [B, 5000, 8, 64]
+        // spatial_shapes:     [1, 2]
+        // level_start_index:  [1]
+        // sampling_locations: [B, 100, 8, 1, 20, 2]
+        // attention_weights:  [B, 100, 8, 1, 20]
+
+        const float* value = static_cast<const float*>(inputs[0]);
+        const float* sampling_locations = static_cast<const float*>(inputs[3]);
+        const float* attention_weights = static_cast<const float*>(inputs[4]);
+        float* output = static_cast<float*>(outputs[0]);
+
+        int B = inputDesc[0].dims.d[0];
+        int spatial_size = inputDesc[0].dims.d[1];
+        int num_heads = inputDesc[0].dims.d[2];
+        int head_dim = inputDesc[0].dims.d[3];
+
+        int Q = inputDesc[3].dims.d[1];
+        int num_levels = inputDesc[3].dims.d[3];
+        int num_points = inputDesc[3].dims.d[4];
+
+        // Route A static assumptions.
+        int H = 50;
+        int W = 100;
+
+        if (!(B == 1 && spatial_size == 5000 && num_heads == 8 &&
+              head_dim == 64 && Q == 100 && num_levels == 1 && num_points == 20)) {
+            printf("[MSDA Plugin] Unexpected dims: B=%d spatial=%d heads=%d head_dim=%d Q=%d levels=%d points=%d\n",
+                   B, spatial_size, num_heads, head_dim, Q, num_levels, num_points);
+            return 1;
+        }
+
+        int total = B * Q * num_heads * head_dim;
+        int threads = 256;
+        int blocks = (total + threads - 1) / threads;
+
+        msda_routea_forward_kernel<<<blocks, threads, 0, stream>>>(
+            value,
+            sampling_locations,
+            attention_weights,
+            output,
+            B,
+            Q,
+            num_heads,
+            num_points,
+            head_dim,
+            H,
+            W
+        );
+
+        return 0;
+    }
+
+    DataType getOutputDataType(
+        int index,
+        const DataType* inputTypes,
+        int nbInputs
+    ) const noexcept override {
+        (void)index;
+        (void)nbInputs;
+        return inputTypes[0];
+    }
+
+    const char* getPluginNamespace() const noexcept override {
+        return namespace_.c_str();
+    }
+
+    void setPluginNamespace(const char* pluginNamespace) noexcept override {
+        namespace_ = pluginNamespace ? pluginNamespace : "";
+    }
+
+    IPluginV2DynamicExt* clone() const noexcept override {
+        auto* plugin = new MultiScaleDeformableAttnPlugin();
+        plugin->setPluginNamespace(namespace_.c_str());
+        return plugin;
+    }
+
+    int initialize() noexcept override {
+        return 0;
+    }
+
+    void terminate() noexcept override {}
+
+    size_t getSerializationSize() const noexcept override {
+        return 0;
+    }
+
+    void serialize(void* buffer) const noexcept override {
+        (void)buffer;
+    }
+
+    void destroy() noexcept override {
+        delete this;
+    }
+
+    void attachToContext(
+        cudnnContext* cudnnContext,
+        cublasContext* cublasContext,
+        IGpuAllocator* gpuAllocator
+    ) noexcept override {
+        (void)cudnnContext;
+        (void)cublasContext;
+        (void)gpuAllocator;
+    }
+
+    void detachFromContext() noexcept override {}
+
+private:
+    std::string namespace_;
+};
+
+class MultiScaleDeformableAttnPluginCreator final : public IPluginCreator {
+public:
+    MultiScaleDeformableAttnPluginCreator() {
+        fields_.clear();
+        fc_.nbFields = fields_.size();
+        fc_.fields = fields_.data();
+    }
+
+    const char* getPluginName() const noexcept override {
+        return PLUGIN_NAME;
+    }
+
+    const char* getPluginVersion() const noexcept override {
+        return PLUGIN_VERSION;
+    }
+
+    const PluginFieldCollection* getFieldNames() noexcept override {
+        return &fc_;
+    }
+
+    IPluginV2* createPlugin(
+        const char* name,
+        const PluginFieldCollection* fc
+    ) noexcept override {
+        (void)name;
+        (void)fc;
+        auto* plugin = new MultiScaleDeformableAttnPlugin();
+        plugin->setPluginNamespace(namespace_.c_str());
+        return plugin;
+    }
+
+    IPluginV2* deserializePlugin(
+        const char* name,
+        const void* serialData,
+        size_t serialLength
+    ) noexcept override {
+        (void)name;
+        auto* plugin = new MultiScaleDeformableAttnPlugin(serialData, serialLength);
+        plugin->setPluginNamespace(namespace_.c_str());
+        return plugin;
+    }
+
+    void setPluginNamespace(const char* pluginNamespace) noexcept override {
+        namespace_ = pluginNamespace ? pluginNamespace : "";
+    }
+
+    const char* getPluginNamespace() const noexcept override {
+        return namespace_.c_str();
+    }
+
+private:
+    std::string namespace_;
+    std::vector<PluginField> fields_;
+    PluginFieldCollection fc_;
+};
+
+}  // namespace
+
+REGISTER_TENSORRT_PLUGIN(MultiScaleDeformableAttnPluginCreator);

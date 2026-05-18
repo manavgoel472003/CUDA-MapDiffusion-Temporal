@@ -1,0 +1,59 @@
+=== TensorRT / plugin files ===
+src/bevfusion/head-transbbox.cu
+src/bevfusion/head-transbbox.hpp
+src/bevfusion/lidar-scn-onnx-parser.cpp
+src/bevfusion/lidar-scn-onnx-parser.hpp
+src/common/tensorrt.cpp
+src/common/tensorrt.hpp
+src/onnx/make_pb.original.sh
+src/onnx/make_pb.sh
+src/onnx/onnx-ml.pb.cpp
+src/onnx/onnx-ml.pb.h
+src/onnx/onnx-ml.proto
+src/onnx/onnx-operators-ml.pb.cpp
+src/onnx/onnx-operators-ml.pb.h
+src/onnx/onnx-operators-ml.proto
+src/plugins/custom_layernorm.cu
+
+=== TensorRT symbols ===
+src/plugins/custom_layernorm.cu:class LayerNormPlugin : public IPluginV2DynamicExt{
+src/plugins/custom_layernorm.cu:    IPluginV2DynamicExt* clone() const noexcept override{
+src/plugins/custom_layernorm.cu:    virtual int32_t enqueue(PluginTensorDesc const* inputDesc, PluginTensorDesc const* outputDesc,
+src/plugins/custom_layernorm.cu:class LayerNormCreater : public IPluginCreator{
+src/plugins/custom_layernorm.cu:    virtual IPluginV2* createPlugin(AsciiChar const* name, PluginFieldCollection const* fc) noexcept{
+src/plugins/custom_layernorm.cu:    virtual IPluginV2* deserializePlugin(AsciiChar const* name, void const* serialData, size_t serialLength) noexcept{
+src/plugins/custom_layernorm.cu:REGISTER_TENSORRT_PLUGIN(LayerNormCreater);
+src/common/tensorrt.cpp:    engine_ = std::shared_ptr<nvinfer1::ICudaEngine>(runtime_->deserializeCudaEngine(pdata, size),
+
+=== CMake source references ===
+CMakeLists.txt:  src/bevfusion/*.cu 
+CMakeLists.txt:  src/bevfusion/*.cpp
+CMakeLists.txt:  src/onnx/*.cpp
+CMakeLists.txt:  src/common/tensor.cu
+CMakeLists.txt:  src/common/tensorrt.cpp
+CMakeLists.txt:  ../libraries/cuOSD/src/*.cpp
+CMakeLists.txt:  ../libraries/cuOSD/src/*.cu
+CMakeLists.txt:  src/common/visualize.cu
+CMakeLists.txt:cuda_add_library(bevfusion_core SHARED 
+CMakeLists.txt:cuda_add_executable(bevfusion 
+CMakeLists.txt:  src/main.cpp
+CMakeLists.txt:cuda_add_library(custom_layernorm SHARED
+CMakeLists.txt:  src/plugins/custom_layernorm.cu
+CMakeLists.txt:  cuda_add_library(pybev SHARED
+CMakeLists.txt:    src/python.cpp
+src/bevfusion/head-transbbox.cu:#include "common/launch.cuh"
+src/bevfusion/lidar-voxelization.cu:#include "common/launch.cuh"
+src/bevfusion/camera-depth.cu:#include "common/launch.cuh"
+src/bevfusion/camera-vtransform.cu:#include "common/launch.cuh"
+src/bevfusion/transfusion.cu:#include "common/launch.cuh"
+src/bevfusion/camera-geometry.cu:#include "common/launch.cuh"
+src/bevfusion/camera-normalization.cu:#include "common/launch.cuh"
+src/bevfusion/camera-backbone.cu:#include "common/launch.cuh"
+src/bevfusion/camera-bevpool.cu:#include "common/launch.cuh"
+src/onnx/make_pb.original.sh:mv pbout/onnx-ml.pb.cc onnx-ml.pb.cpp
+src/onnx/make_pb.original.sh:mv pbout/onnx-operators-ml.pb.cc onnx-operators-ml.pb.cpp
+src/onnx/make_pb.sh:mv pbout/onnx-ml.pb.cc onnx-ml.pb.cpp
+src/onnx/make_pb.sh:mv pbout/onnx-operators-ml.pb.cc onnx-operators-ml.pb.cpp
+src/common/tensor.cu:#include "launch.cuh"
+src/common/visualize.cu:#include "launch.cuh"
+src/main.cpp:  printf("[Warning]: If you got an inaccurate boundingbox result please turn on the layernormplugin plan. (main.cpp:207)\n");
